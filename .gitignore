@@ -3,3 +3,5 @@ __pycache__/
 *.py[cod]
 .idea/
 .env
+data/tickets.json
+.pytest_cache/

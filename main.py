@@ -1,15 +1,9 @@
-PROJECT_NAME = "TicketPilot"
+from ticketpilot.cli import run_cli
 
 
-def build_welcome_message(learner_name: str) -> str:
-    message = f"{learner_name}，欢迎来到 {PROJECT_NAME}！"
-    return message
-
-
+# 启动 TicketPilot 命令行程序
 def main() -> None:
-    learner_name = "GG"
-    welcome_message = build_welcome_message(learner_name)
-    print(welcome_message)
+    run_cli()
 
 
 if __name__ == "__main__":
