@@ -1,0 +1,389 @@
+# 导入 pytest，用来验证预期异常
+import pytest
+from sqlalchemy.exc import SQLAlchemyError
+
+# 导入数据库配置构造函数
+from ticketpilot.database import (
+    build_engine,
+    build_session_factory,
+    create_tables,
+)
+
+# 导入数据库工单模型
+from ticketpilot.db_models import TicketRecord
+
+# 导入本批次需要测试的三个 Repository 函数
+from ticketpilot.repository import (
+    # 导入创建工单函数
+    create_ticket,
+    # 导入删除工单函数
+    delete_ticket,
+    # 导入按 ID 查询函数
+    get_ticket_by_id,
+    # 导入列表查询函数
+    list_tickets,
+    # 导入状态修改函数
+    update_ticket_status,
+)
+
+
+# 创建一张供 Repository 测试使用的 ORM 工单
+def make_ticket_record(
+    # 允许测试为不同工单指定不同 ID
+    ticket_id: str = "T-001",
+# 返回一个尚未保存的 TicketRecord 对象
+) -> TicketRecord:
+    # 创建并返回完整的 ORM 工单对象
+    return TicketRecord(
+        # 使用调用者传入的工单 ID
+        id=ticket_id,
+        # 设置客户姓名
+        customer_name="GG",
+        # 设置联系邮箱
+        contact_email="gg@example.com",
+        # 设置工单来源渠道
+        channel="web",
+        # 设置工单标题
+        subject="无法登录",
+        # 设置详细问题描述
+        description="输入密码后没有反应",
+        # 设置优先级
+        priority="high",
+        # 设置初始状态
+        status="open",
+    )
+
+
+# 验证 Repository 可以创建、列表查询和主键查询工单
+def test_repository_creates_and_reads_tickets() -> None:
+    # 创建只存在于当前测试中的内存 SQLite Engine
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 根据 ORM 模型在测试数据库中创建 tickets 表
+    create_tables(test_engine)
+
+    # 创建绑定测试 Engine 的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 通过 Session 工厂创建并自动关闭一次 Session
+    with test_session_factory() as session:
+        # 创建第一张尚未保存的 ORM 工单
+        first_ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 创建第二张尚未保存的 ORM 工单
+        second_ticket = make_ticket_record(
+            "T-002",
+        )
+
+        # 调用 Repository 保存第一张工单
+        created_first_ticket = create_ticket(
+            session,
+            first_ticket,
+        )
+
+        # 调用 Repository 保存第二张工单
+        create_ticket(
+            session,
+            second_ticket,
+        )
+
+        # 调用 Repository 查询全部工单
+        all_tickets = list_tickets(session)
+
+        # 根据存在的主键查询第一张工单
+        found_ticket = get_ticket_by_id(
+            session,
+            "T-001",
+        )
+
+        # 根据不存在的主键执行查询
+        missing_ticket = get_ticket_by_id(
+            session,
+            "T-999",
+        )
+
+        # 验证创建操作返回了第一张工单
+        assert created_first_ticket.id == "T-001"
+
+        # 验证列表查询得到了两张工单
+        assert len(all_tickets) == 2
+
+        # 验证排序后的第一张工单是 T-001
+        assert all_tickets[0].id == "T-001"
+
+        # 验证存在的工单能够被找到
+        assert found_ticket is not None
+
+        # 验证找到的是目标工单
+        assert found_ticket.id == "T-001"
+
+        # 验证不存在的工单返回 None
+        assert missing_ticket is None
+
+    # 关闭 Engine 持有的数据库连接
+    test_engine.dispose()
+
+
+# 验证底层数据库错误会被转换成 RuntimeError
+def test_repository_converts_database_error() -> None:
+    # 创建一个新的空内存数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 故意不调用 create_tables()，因此 tickets 表不存在
+
+    # 创建并自动关闭测试 Session
+    with test_session_factory() as session:
+        # 声明这里应该出现 RuntimeError
+        with pytest.raises(
+            # 验证异常类型
+            RuntimeError,
+            # 验证异常消息，确认是 Repository 转换后的异常
+            match="查询工单列表失败",
+        ):
+            # 查询不存在的 tickets 表，触发数据库错误
+            list_tickets(session)
+
+    # 释放 Engine 持有的数据库连接
+    test_engine.dispose()
+
+# 验证 Repository 可以持久化状态修改和删除操作
+def test_repository_updates_and_deletes_tickets() -> None:
+    # 创建本测试独享的内存 SQLite 数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 在测试数据库中创建 tickets 表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建第一个数据库 Session
+    with test_session_factory() as session:
+        # 创建准备修改的第一张工单
+        first_ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 创建准备删除的第二张工单
+        second_ticket = make_ticket_record(
+            "T-002",
+        )
+
+        # 保存第一张工单
+        create_ticket(
+            session,
+            first_ticket,
+        )
+
+        # 保存第二张工单
+        create_ticket(
+            session,
+            second_ticket,
+        )
+
+        # 把第一张工单状态修改为 resolved
+        updated_ticket = update_ticket_status(
+            session,
+            first_ticket,
+            "resolved",
+        )
+
+        # 删除第二张工单
+        delete_ticket(
+            session,
+            second_ticket,
+        )
+
+        # 验证函数返回的对象状态已经修改
+        assert updated_ticket.status == "resolved"
+
+    # 使用新的 Session 验证修改确实写入了数据库
+    with test_session_factory() as session:
+        # 重新查询第一张工单
+        stored_first_ticket = get_ticket_by_id(
+            session,
+            "T-001",
+        )
+
+        # 重新查询已经删除的第二张工单
+        stored_second_ticket = get_ticket_by_id(
+            session,
+            "T-002",
+        )
+
+        # 第一张工单应该仍然存在
+        assert stored_first_ticket is not None
+
+        # 第一张工单的新状态应该已被持久化
+        assert stored_first_ticket.status == "resolved"
+
+        # 第二张工单应该已经不存在
+        assert stored_second_ticket is None
+
+    # 释放 Engine 管理的数据库连接
+    test_engine.dispose()
+
+
+# 验证修改状态提交失败时数据库会回滚
+def test_update_ticket_status_rolls_back(
+    # 接收 pytest 提供的临时替换工具
+    monkeypatch,
+) -> None:
+    # 创建本测试独享的内存数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 创建数据库表
+    create_tables(test_engine)
+
+    # 创建测试 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建测试 Session
+    with test_session_factory() as session:
+        # 创建一张初始状态为 open 的工单
+        ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 先正常保存这张工单
+        create_ticket(
+            session,
+            ticket,
+        )
+
+        # 定义一个模拟提交失败的函数
+        def fake_commit() -> None:
+            # 主动抛出 SQLAlchemy 数据库异常
+            raise SQLAlchemyError(
+                "模拟数据库提交失败"
+            )
+
+        # 临时把当前 Session 的 commit 替换为失败函数
+        monkeypatch.setattr(
+            session,
+            "commit",
+            fake_commit,
+        )
+
+        # 声明状态修改应该转换成 RuntimeError
+        with pytest.raises(
+            # 验证异常类型
+            RuntimeError,
+            # 验证异常来自状态修改 Repository
+            match="修改工单状态失败",
+        ):
+            # 尝试把状态改成 resolved
+            update_ticket_status(
+                session,
+                ticket,
+                "resolved",
+            )
+
+        # 回滚后重新根据主键取得工单
+        rolled_back_ticket = session.get(
+            TicketRecord,
+            "T-001",
+        )
+
+        # 工单应该仍然存在
+        assert rolled_back_ticket is not None
+
+        # 状态应该恢复为事务开始前的 open
+        assert rolled_back_ticket.status == "open"
+
+    # 释放数据库连接
+    test_engine.dispose()
+
+# 验证删除提交失败时工单仍然存在
+def test_delete_ticket_rolls_back(
+    # 接收 pytest 的临时替换工具
+    monkeypatch,
+) -> None:
+    # 创建本测试独享的内存数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 创建数据库表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建测试 Session
+    with test_session_factory() as session:
+        # 创建准备删除的工单
+        ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 先把工单正常保存到数据库
+        create_ticket(
+            session,
+            ticket,
+        )
+
+        # 定义模拟提交失败的函数
+        def fake_commit() -> None:
+            # 主动产生 SQLAlchemy 数据库异常
+            raise SQLAlchemyError(
+                "模拟数据库提交失败"
+            )
+
+        # 将当前 Session 的 commit 临时替换为失败函数
+        monkeypatch.setattr(
+            session,
+            "commit",
+            fake_commit,
+        )
+
+        # 声明删除函数应该抛出转换后的 RuntimeError
+        with pytest.raises(
+            # 验证异常类型
+            RuntimeError,
+            # 验证异常消息
+            match="删除工单失败",
+        ):
+            # 尝试删除工单
+            delete_ticket(
+                session,
+                ticket,
+            )
+
+        # 回滚后重新查询相同主键
+        rolled_back_ticket = session.get(
+            TicketRecord,
+            "T-001",
+        )
+
+        # 删除没有提交成功，所以工单必须仍然存在
+        assert rolled_back_ticket is not None
+
+        # 验证恢复的是原来的工单
+        assert rolled_back_ticket.id == "T-001"
+
+    # 释放 Engine 管理的连接
+    test_engine.dispose()

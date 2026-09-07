@@ -295,7 +295,7 @@ flowchart TD
 
 ### 当前状态
 
-**第 0–2 课已完成。第 3 课批次 1–5 已完成，FastAPI CRUD 已具备；下一步进行代码整理、完整验收与 `v0.2-fastapi-crud` Git 检查点。**
+**第 0–3 课已完成。第 4 课批次 1–8 已完成：FastAPI 完整 CRUD 已迁移到 SQLAlchemy Repository，并由真实临时数据库集成测试覆盖；下一批次清理 JSON 遗留代码并建立检查点。**
 
 ### 第 0 课：环境、项目目录和第一个 Python 程序
 
@@ -606,7 +606,7 @@ __pycache__/
 
 ### 第 1 课：变量、输入、输出与第一条工单
 
-状态：进行中
+状态：已完成
 
 #### 批次 1：交互式工单输入
 
@@ -622,6 +622,33 @@ __pycache__/
 ```text
 用户输入 -> input() -> strip()/lower() -> 字符串变量 -> f-string -> print()
 ```
+
+批次 1 验收：通过。
+
+#### 批次 2：可复用 Engine、Session 工厂与文件型 SQLite
+
+- 区分 Engine、Session 和 `sessionmaker`，并类比 Java `DataSource`、`EntityManager` 与 `EntityManagerFactory`。
+- 建立项目数据库文件路径和 SQLite URL。
+- 抽取 `build_engine()` 与 `build_session_factory()`，使生产配置和测试配置可以复用。
+- 为 SQLite 配置 `check_same_thread=False`，为 Session 配置明确的 flush 和提交后对象行为。
+- 创建 `create_tables()`，在 ORM 模型完成登记后生成表结构。
+- 使用 pytest 临时目录验证数据库文件、`tickets` 表、Session 保存和跨 Session 查询。
+- 将本地 `.db` 与 journal 文件加入 `.gitignore`；全部测试由 28 项增加到 29 项并通过。
+
+批次 2 验收：通过。
+
+### 第 4 课：SQLAlchemy ORM 与关系型数据库
+
+状态：进行中
+
+#### 批次 1：ORM 映射与内存 SQLite 测试
+
+- 安装 SQLAlchemy 2.x，并区分数据库、SQL、ORM 与 SQLAlchemy 的职责。
+- 创建 `database.py` 中的 `DeclarativeBase` 公共基类。
+- 创建 `TicketRecord` ORM 模型，将 Python 属性映射到 `tickets` 表的列。
+- 使用内存 SQLite、`Session` 和 `select()` 完成一次保存与查询闭环。
+- 新增数据库模型测试，全部测试由 27 项增加到 28 项并通过。
+- 首次测试发现 ORM 属性误写为 `customer_email`，而项目统一字段名为 `contact_email`；统一命名后通过。
 
 批次 1 验收：通过。
 
@@ -672,6 +699,13 @@ __pycache__/
 
 批次 5 验收：通过。FastAPI JSON 存储版 CRUD 接口完成。
 
+#### FastAPI CRUD 阶段检查点
+
+- 完整测试：27 项全部通过。
+- 提交：`f8f5208 feat: build tested FastAPI ticket CRUD`。
+- 标签：`v0.2-fastapi-crud`。
+- 检查点创建后工作区干净。
+
 #### 批次 2：Python 包与模块拆分
 
 - 创建 `ticketpilot` Python 包，并增加 `__init__.py`。
@@ -713,7 +747,7 @@ __pycache__/
 
 ### 第 3 课：FastAPI 与 HTTP API
 
-状态：进行中
+状态：已完成
 
 #### 批次 1：开发服务器、健康检查与 API 测试
 
@@ -777,7 +811,7 @@ __pycache__/
 
 ### 第 2 课：函数、工单数据与模块化
 
-状态：进行中
+状态：已完成
 
 #### 批次 1：完整 CRUD、UUID 与失败回滚
 
@@ -806,7 +840,7 @@ __pycache__/
 | React、Docker、CI、README、演示与面试 | 8 |
 | **合计** | **约 65** |
 
-当前已完成约 15 个批次，约占 65 批基线的 23%，Python 命令行阶段已完成，FastAPI/数据库阶段已完成 5 个批次。实际总量会根据练习通过速度和调试情况在 60–70 之间调整。
+当前已完成约 23 个批次，约占 65 批基线的 35%，Python 命令行阶段已完成，FastAPI/数据库阶段已完成 13 个批次。实际总量会根据练习通过速度和调试情况在 60–70 之间调整。
 
 ---
 
@@ -856,7 +890,8 @@ __pycache__/
 | 第 0 课：环境与第一个程序 | 已完成 | 2026-08-30 | 2026-08-31 | `8d37a08` | Python 3.12.13、uv、PyCharm、虚拟环境、最小程序与首次 Git 提交均通过 |
 | 第 1 课：变量、输入和输出 | 已完成 | 2026-08-31 | 2026-08-31 | 待本阶段提交 | 批次 1–5 已通过，已实现 JSON 持久化 |
 | 第 2 课：函数与工单数据 | 已完成 | 2026-08-31 | 2026-09-01 | `e4cc33b` / `v0.1-cli-ticket` | dataclass、模块化、JSON 持久化与 12 项 pytest 测试通过 |
-| 第 3 课：FastAPI 与 HTTP API | 进行中 | 2026-09-01 |  |  | 批次 1–5 已通过；JSON 存储版 CRUD 完成，待代码整理与 `v0.2-fastapi-crud` 检查点 |
+| 第 3 课：FastAPI 与 HTTP API | 已完成 | 2026-09-01 | 2026-09-02 | `f8f5208` / `v0.2-fastapi-crud` | 27 项测试通过；健康检查、请求校验、完整 CRUD、错误响应与失败回滚均完成 |
+| 第 4 课：SQLAlchemy ORM 与关系型数据库 | 进行中 | 2026-09-03 |  |  | 批次 1–8 已通过；FastAPI CRUD 已全部使用数据库 Repository，37 项测试通过 |
 
 新课程在进入对应阶段时继续添加，避免一次列出大量没有上下文的细碎任务。
 
@@ -885,6 +920,13 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 |---|---:|---|
 | CLI 模型、存储、CRUD 与错误回滚 | 12/12 通过 | 本地执行 `uv run pytest -v` |
 | FastAPI 健康检查与完整 CRUD、请求校验、404/500、失败回滚 | 15/15 通过 | 本地执行 `uv run pytest -v`；全项目 27 项通过 |
+| SQLAlchemy ORM 映射与内存数据库读写 | 1/1 通过 | 本地执行 `uv run pytest -v`；全项目 28 项通过 |
+| SQLAlchemy Engine、Session 工厂与文件型 SQLite 配置 | 1/1 通过 | 本地执行 `uv run pytest -v`；全项目 29 项通过 |
+| Repository 数据库 CRUD、异常转换与事务回滚 | 5/5 通过 | 本地执行 `uv run pytest -v`；全项目 34 项通过 |
+| Session 生成器依赖生命周期 | 1/1 通过 | 本地执行 `uv run pytest -v`；全项目 35 项通过 |
+| FastAPI lifespan 与真实数据库 GET 集成链路 | 1/1 通过 | 本地执行 `uv run pytest -v`；全项目 36 项通过 |
+| POST 请求 DTO 到 ORM、Repository 和数据库集成链路 | 2/2 通过 | 本地执行 `uv run pytest -v`；全项目 37 项通过 |
+| 数据库版 FastAPI 完整 CRUD 集成链路 | 17/17 通过 | 临时 SQLite 覆盖 POST、GET、PATCH、DELETE；全项目 37 项通过 |
 
 | 指标 | 最终目标 | 当前结果 | 数据集规模 | 证据位置 |
 |---|---:|---:|---:|---|
@@ -1018,6 +1060,15 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 | PATCH | 只修改资源的一部分字段的 HTTP 方法 | 初步理解 |
 | DELETE | 删除指定资源的 HTTP 方法 | 初步理解 |
 | HTTP 204 | 请求成功但不返回响应正文 | 初步理解 |
+| ORM | 在 Python 对象与关系型数据库表之间建立映射的技术 | 初步理解 |
+| SQLAlchemy | Python 数据库工具库，包含 SQL 表达层和 ORM | 初步理解 |
+| Session | SQLAlchemy 中跟踪 ORM 对象并管理数据库事务的工作单元 | 初步理解 |
+| Engine | SQLAlchemy 的数据库连接与方言入口 | 初步理解 |
+| sessionmaker | 保存统一配置并按需创建 Session 的工厂 | 初步理解 |
+| Repository | 隔离业务/API 层与数据库查询细节的数据访问层，可类比 DAO | 初步理解 |
+| 数据库事务 | 将一组数据库变化作为整体提交或回滚的工作单元 | 初步理解 |
+| 依赖注入 | 使用者声明需要的对象，由外部或框架负责创建并传入 | 初步理解 |
+| lifespan | FastAPI 应用启动到关闭期间的资源初始化与清理生命周期 | 初步理解 |
 
 ---
 
@@ -1056,6 +1107,7 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 | 2026-08-31 | 后续示例在每个函数前添加职责注释，函数改名时同步更新所有调用，并提供完整运行示例 | 学习者希望更容易阅读代码并核对实际运行效果 | 进入类和模块阶段后升级为规范 docstring 与模块文档 |
 | 2026-08-31 | 所有新概念必须先解释用途、问题、基本语法和最小示例，再给完整项目代码 | 避免先面对大段陌生代码后再倒推含义，提高理解和输入代码的质量 | 每个批次开始前检查是否存在未预讲的新内容 |
 | 2026-09-01 | Python、FastAPI、测试和后续框架概念优先使用 Java 生态作类比 | 学习者有 Java 基础，可通过 Java 语法、Maven、Spring Boot、JUnit、JPA 等已有认知降低理解成本；类比时仍说明关键差异 | 每个新概念预讲时执行 |
+| 2026-09-06 | 后续完整教学代码为每一行或紧密相关的小段补充用途与原因注释 | 学习者能够读懂现成代码，但需要通过逐行解释建立从需求到代码的思路 | 后续代码批次持续执行；重复结构仍保持注释简洁 |
 
 ---
 
