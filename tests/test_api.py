@@ -707,8 +707,7 @@ def test_delete_ticket_returns_500_when_database_fails(
 def test_api_uses_database_repository(
         # pytest 提供临时目录，避免污染项目真实数据库
         tmp_path,
-        # pytest 提供临时替换工具
-        monkeypatch,
+
 ) -> None:
     # 在 pytest 临时目录中定义测试数据库文件
     database_file = tmp_path / "api-test.db"
@@ -766,18 +765,6 @@ def test_api_uses_database_repository(
             # 把测试 Session 注入 FastAPI 路由
             yield session
 
-    # 把生命周期中的建表操作切换到测试 Engine
-    monkeypatch.setattr(
-        # 修改 api 模块中使用的函数
-        api,
-        # 替换 api.create_tables
-        "create_tables",
-        # 启动时只操作测试数据库
-        lambda: database.create_tables(
-            test_engine
-        ),
-    )
-
     # 告诉 FastAPI 用测试依赖替代正式 get_session
     app.dependency_overrides[
         # 原来的依赖函数
@@ -787,7 +774,7 @@ def test_api_uses_database_repository(
 
     # 使用 try 保证测试结束后一定清理依赖覆盖
     try:
-        # 上下文写法会真正执行 FastAPI lifespan
+        # 使用测试客户端调用真实测试数据库中的 CRUD 接口
         with TestClient(app) as database_client:
             # 通过 POST 接口向真实测试数据库创建工单
             create_response = database_client.post(

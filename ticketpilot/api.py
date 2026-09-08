@@ -1,71 +1,58 @@
-# 导入异步迭代器类型，用于标注 FastAPI 生命周期函数
-from collections.abc import AsyncIterator
-# 导入异步上下文管理器装饰器
-from contextlib import asynccontextmanager
-# 导入 Annotated，用于组合类型和依赖信息
+# 导入 Annotated，用于组合类型和 FastAPI 依赖信息
 from typing import Annotated
+
+# 导入 UUID 生成函数，用于创建工单编号
 from uuid import uuid4
 
-# 导入 FastAPI 的应用、依赖注入和 HTTP 异常工具
+# 导入 FastAPI 使用的主要工具
 from fastapi import (
-    # Depends 声明一个参数由依赖函数提供
+    # 声明参数由依赖注入系统提供
     Depends,
-    # FastAPI 用于创建 Web API 应用
+    # 创建 FastAPI 应用
     FastAPI,
-    # HTTPException 用于返回 404、500 等错误响应
+    # 返回 HTTP 错误
     HTTPException,
-    # status 提供带名称的 HTTP 状态码
+    # 提供带名称的 HTTP 状态码
     status,
 )
+
+# 导入 SQLAlchemy Session 类型
 from sqlalchemy.orm import Session
 
-# 把 repository 模块命名为 ticket_repository，避免函数重名
+# 导入 Repository，负责数据库 CRUD
 from ticketpilot import repository as ticket_repository
-# 导入数据库表初始化函数和 Session 依赖函数
-from ticketpilot.database import (
-    # 在应用启动时创建尚不存在的数据库表
-    create_tables,
-    # 为每个 HTTP 请求提供数据库 Session
-    get_session,
-)
-# 导入数据库工单模型
+
+# 导入每个请求使用的 Session 依赖
+from ticketpilot.database import get_session
+
+# 导入数据库工单 ORM 模型
 from ticketpilot.db_models import TicketRecord
+
+# 导入 API 请求和响应模型
 from ticketpilot.schemas import (
-    TicketResponse,
     TicketCreateRequest,
+    TicketResponse,
     TicketStatusUpdateRequest,
 )
 
+
 # 定义由 FastAPI 自动提供的数据库 Session 参数类型
 DatabaseSession = Annotated[
-    # 参数在 Python 中是 SQLAlchemy Session
+    # 路由函数实际得到的是 SQLAlchemy Session
     Session,
-        # 参数值由 get_session() 依赖函数提供
+    # FastAPI 调用 get_session() 创建并提供 Session
     Depends(get_session),
 ]
 
 
-# 把普通的异步生成器转换成应用生命周期管理器
-@asynccontextmanager
-# 定义 FastAPI 从启动到关闭的生命周期
-async def lifespan(
-        # FastAPI 会传入应用对象；下划线表示当前暂不使用
-        _app: FastAPI,
-        # 生命周期会异步 yield 一次，不返回其他结果
-) -> AsyncIterator[None]:
-    # yield 前执行：创建尚不存在的数据库表
-    create_tables()
-
-    # 暂停在这里，此时 FastAPI 开始正常接收请求
-    yield
-
-
+# 创建 FastAPI 应用
 app = FastAPI(
+    # Swagger 文档中显示的项目名称
     title="TicketPilot API",
+    # Swagger 文档中显示的项目说明
     description="企业智能工单与知识库 Agent API",
+    # 当前 API 版本
     version="0.2.0",
-    # 注册应用启动和关闭生命周期
-    lifespan=lifespan,
 )
 
 
