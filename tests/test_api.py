@@ -92,6 +92,9 @@ def test_create_ticket_returns_created_ticket(
     # 验证新工单初始状态为 open
     assert response_data["status"] == "open"
 
+    # 验证新工单创建时还没有分配处理人
+    assert response_data["assigned_to"] is None
+
     # 验证 Repository 被调用了一次
     assert len(saved_ticket_records) == 1
 
@@ -554,7 +557,205 @@ def test_update_ticket_status_returns_500_when_database_fails(
         "detail": "工单服务暂时不可用",
     }
 
+# 验证处理人接口可以分配和取消分配工单
+def test_update_ticket_assignee_assigns_and_clears(
+        # 使用 monkeypatch 隔离真实数据库
+        monkeypatch,
+) -> None:
+    # 创建一张模拟数据库工单
+    ticket_record = make_database_ticket(
+        "T-001"
+    )
 
+    # 保存 Repository 每次收到的处理人
+    received_assignees: list[str | None] = []
+
+    # 模拟根据 ID 找到工单
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "get_ticket_by_id",
+        lambda session, ticket_id: ticket_record,
+    )
+
+    # 定义模拟的 Repository 处理人修改函数
+    def fake_update_ticket_assignee(
+            # 接收当前请求的 Session
+            session,
+            # 接收需要修改的 ORM 工单
+            stored_ticket: TicketRecord,
+            # 接收新处理人或 None
+            new_assignee: str | None,
+    ) -> TicketRecord:
+        # 验证 API 传入的是查询得到的工单
+        assert stored_ticket is ticket_record
+
+        # 记录 API 传入的处理人
+        received_assignees.append(
+            new_assignee
+        )
+
+        # 模拟 Repository 修改 ORM 对象
+        stored_ticket.assigned_to = new_assignee
+
+        # 模拟保存成功并返回工单
+        return stored_ticket
+
+    # 替换真实 Repository 修改方法
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "update_ticket_assignee",
+        fake_update_ticket_assignee,
+    )
+
+    # 第一次请求：把工单分配给张三
+    assigned_response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={
+            # 两端空格应该由 Pydantic 自动删除
+            "assigned_to": "  张三  ",
+        },
+    )
+
+    # 第二次请求：使用 null 取消分配
+    cleared_response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={
+            "assigned_to": None,
+        },
+    )
+
+    # 验证两次请求都成功
+    assert assigned_response.status_code == 200
+    assert cleared_response.status_code == 200
+
+    # 验证第一次响应返回清理空格后的姓名
+    assert (
+        assigned_response.json()["assigned_to"]
+        == "张三"
+    )
+
+    # 验证第二次响应返回 null
+    assert (
+        cleared_response.json()["assigned_to"]
+        is None
+    )
+
+    # 验证 Repository 依次收到分配和取消分配操作
+    assert received_assignees == [
+        "张三",
+        None,
+    ]
+
+# 验证不合法的处理人请求会返回 HTTP 422
+def test_update_ticket_assignee_rejects_invalid_request() -> None:
+    # 请求体缺少 assigned_to 字段
+    missing_response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={},
+    )
+
+    # 空格被清除后长度为零
+    blank_response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={
+            "assigned_to": "   ",
+        },
+    )
+
+    # 处理人姓名超过数据库允许的 100 个字符
+    too_long_response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={
+            "assigned_to": "A" * 101,
+        },
+    )
+
+    # 三种不合法请求都应该被 Pydantic 拒绝
+    assert missing_response.status_code == 422
+    assert blank_response.status_code == 422
+    assert too_long_response.status_code == 422
+
+# 验证修改不存在工单的处理人时返回 HTTP 404
+def test_update_ticket_assignee_returns_404_when_not_found(
+        # 使用 monkeypatch 模拟查询不到工单
+        monkeypatch,
+) -> None:
+    # Repository 返回 None，表示工单不存在
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "get_ticket_by_id",
+        lambda session, ticket_id: None,
+    )
+
+    # 请求修改不存在的工单
+    response = client.patch(
+        "/v1/tickets/T-999/assignee",
+        json={
+            "assigned_to": "张三",
+        },
+    )
+
+    # 验证资源不存在状态码
+    assert response.status_code == 404
+
+    # 验证错误响应内容
+    assert response.json() == {
+        "detail": "工单不存在",
+    }
+
+# 验证 Repository 修改失败时接口返回 HTTP 500
+def test_update_ticket_assignee_returns_500_when_database_fails(
+        # 使用 monkeypatch 模拟数据库故障
+        monkeypatch,
+) -> None:
+    # 创建一张模拟存在的 ORM 工单
+    ticket_record = make_database_ticket(
+        "T-001"
+    )
+
+    # 模拟根据 ID 找到工单
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "get_ticket_by_id",
+        lambda session, ticket_id: ticket_record,
+    )
+
+    # 定义模拟失败的 Repository 方法
+    def fake_update_ticket_assignee(
+            # 接收当前请求的 Session
+            session,
+            # 接收目标工单
+            stored_ticket: TicketRecord,
+            # 接收准备保存的处理人
+            new_assignee: str | None,
+    ) -> TicketRecord:
+        # 模拟 Repository 已经转换过的数据库异常
+        raise RuntimeError(
+            "修改工单处理人失败"
+        )
+
+    # 替换真实 Repository 方法
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "update_ticket_assignee",
+        fake_update_ticket_assignee,
+    )
+
+    # 发送格式合法的请求
+    response = client.patch(
+        "/v1/tickets/T-001/assignee",
+        json={
+            "assigned_to": "张三",
+        },
+    )
+
+    # 验证数据库错误被转换成 HTTP 500
+    assert response.status_code == 500
+
+    # 验证客户端看不到底层数据库错误
+    assert response.json() == {
+        "detail": "工单服务暂时不可用",
+    }
 # 验证 DELETE 接口会删除 Repository 找到的 ORM 工单
 def test_delete_ticket_returns_204(
         # 使用 monkeypatch 隔离真实数据库
@@ -823,6 +1024,35 @@ def test_api_uses_database_repository(
             updated_detail_response = database_client.get(
                 f"/v1/tickets/{created_ticket_id}"
             )
+            # 通过真实处理人接口把工单分配给张三
+            assign_response = database_client.patch(
+                # 请求刚刚创建的工单
+                f"/v1/tickets/{created_ticket_id}/assignee",
+                # 提交新的处理人
+                json={
+                    "assigned_to": "张三",
+                },
+            )
+
+            # 使用新的 HTTP 请求重新查询，验证处理人已经持久化
+            assigned_detail_response = database_client.get(
+                f"/v1/tickets/{created_ticket_id}"
+            )
+
+            # 通过真实处理人接口取消分配
+            clear_assignee_response = database_client.patch(
+                # 请求同一张工单
+                f"/v1/tickets/{created_ticket_id}/assignee",
+                # JSON null 会被 Pydantic 转换成 Python None
+                json={
+                    "assigned_to": None,
+                },
+            )
+
+            # 再次查询，验证数据库已经保存 NULL
+            cleared_detail_response = database_client.get(
+                f"/v1/tickets/{created_ticket_id}"
+            )
 
             # 通过真实 DELETE 接口删除刚创建的工单
             delete_response = database_client.delete(
@@ -838,6 +1068,8 @@ def test_api_uses_database_repository(
 
         # 验证新工单初始状态
         assert create_response.json()["status"] == "open"
+        # 验证新工单默认没有处理人
+        assert create_response.json()["assigned_to"] is None
         # 验证列表查询成功
         assert list_response.status_code == 200
 
@@ -863,6 +1095,36 @@ def test_api_uses_database_repository(
         assert (
                 updated_detail_response.json()["status"]
                 == "resolved"
+        )
+
+        # 验证分配处理人的请求成功
+        assert assign_response.status_code == 200
+
+        # 验证分配接口立即返回新的处理人
+        assert (
+                assign_response.json()["assigned_to"]
+                == "张三"
+        )
+
+        # 验证新的 GET 请求仍能从数据库读到张三
+        assert (
+                assigned_detail_response.json()["assigned_to"]
+                == "张三"
+        )
+
+        # 验证取消分配请求成功
+        assert clear_assignee_response.status_code == 200
+
+        # 验证取消分配接口返回 JSON null
+        assert (
+                clear_assignee_response.json()["assigned_to"]
+                is None
+        )
+
+        # 验证新的 GET 请求从数据库读到 NULL
+        assert (
+                cleared_detail_response.json()["assigned_to"]
+                is None
         )
 
         # 验证 DELETE 删除成功且不返回正文

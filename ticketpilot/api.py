@@ -30,6 +30,7 @@ from ticketpilot.db_models import TicketRecord
 
 # 导入 API 请求和响应模型
 from ticketpilot.schemas import (
+    TicketAssigneeUpdateRequest,
     TicketCreateRequest,
     TicketResponse,
     TicketStatusUpdateRequest,
@@ -71,6 +72,8 @@ def to_ticket_response(
         description=ticket.description,
         priority=ticket.priority,
         status=ticket.status,
+        # 把数据库中的处理人放入 API 响应
+        assigned_to=ticket.assigned_to,
     )
 
 
@@ -257,6 +260,84 @@ def update_ticket_status(
         updated_ticket
     )
 
+# 根据工单 ID 修改或清空当前处理人
+@app.patch(
+    # ticket_id 来自 URL 路径
+    "/v1/tickets/{ticket_id}/assignee",
+    # 声明成功响应使用 TicketResponse
+    response_model=TicketResponse,
+    # 在 Swagger 文档中归入 tickets 分组
+    tags=["tickets"],
+)
+def update_ticket_assignee(
+        # 接收 URL 中的工单 ID
+        ticket_id: str,
+        # 接收并验证客户端提交的处理人
+        request: TicketAssigneeUpdateRequest,
+        # 获取当前请求独享的数据库 Session
+        session: DatabaseSession,
+        # 修改成功后返回完整工单
+) -> TicketResponse:
+    # 捕获查询工单时可能发生的数据库错误
+    try:
+        # 根据主键查询目标工单
+        ticket_record = (
+            ticket_repository.get_ticket_by_id(
+                # 传入当前请求的 Session
+                session,
+                # 传入 URL 中的工单 ID
+                ticket_id,
+            )
+        )
+
+    # 捕获 Repository 转换后的数据库异常
+    except RuntimeError as error:
+        # 转换成统一的 HTTP 500
+        raise HTTPException(
+            # 返回服务器内部错误状态码
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            # 不向客户端泄漏数据库异常细节
+            detail="工单服务暂时不可用",
+        ) from error
+
+    # Repository 返回 None 表示目标工单不存在
+    if ticket_record is None:
+        # 返回资源不存在错误
+        raise HTTPException(
+            # 使用 HTTP 404
+            status_code=status.HTTP_404_NOT_FOUND,
+            # 返回客户端可理解的错误信息
+            detail="工单不存在",
+        )
+
+    # 捕获修改处理人和提交事务时的数据库错误
+    try:
+        # 调用 Repository 保存新的处理人
+        updated_ticket = (
+            ticket_repository.update_ticket_assignee(
+                # 传入当前请求的 Session
+                session,
+                # 传入已经查询到的 ORM 工单
+                ticket_record,
+                # 字符串表示分配；None 表示取消分配
+                request.assigned_to,
+            )
+        )
+
+    # 捕获 Repository 转换后的修改失败异常
+    except RuntimeError as error:
+        # 转换成稳定的 HTTP 500 响应
+        raise HTTPException(
+            # 返回服务器内部错误状态码
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            # 隐藏底层数据库错误
+            detail="工单服务暂时不可用",
+        ) from error
+
+    # 将更新后的 ORM 工单转换成 API 响应
+    return to_ticket_response(
+        updated_ticket
+    )
 
 # 根据工单 ID 删除数据库中的工单
 @app.delete(

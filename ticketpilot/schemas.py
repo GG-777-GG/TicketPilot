@@ -60,6 +60,23 @@ class TicketStatusUpdateRequest(BaseModel):
 
     status: TicketStatus
 
+# 定义修改工单处理人接口允许接收的数据
+class TicketAssigneeUpdateRequest(BaseModel):
+    # 设置字符串清理和额外字段检查规则
+    model_config = ConfigDict(
+        # 自动删除处理人姓名两端的空格
+        str_strip_whitespace=True,
+        # 拒绝请求模型中没有声明的字段
+        extra="forbid",
+    )
+
+    # 请求必须提供 assigned_to，但值可以是字符串或 None
+    assigned_to: str | None = Field(
+        # 字符串至少包含一个字符
+        min_length=1,
+        # 与数据库 String(100) 的长度保持一致
+        max_length=100,
+    )
 
 # 定义工单接口允许返回给客户端的数据
 class TicketResponse(BaseModel):
@@ -71,3 +88,5 @@ class TicketResponse(BaseModel):
     description: str
     priority: Priority
     status: TicketStatus
+    # 返回当前处理人；None 表示尚未分配
+    assigned_to: str | None

@@ -138,6 +138,36 @@ def update_ticket_status(
     # 提交成功后返回修改过的工单对象
     return ticket
 
+# 修改一张工单的当前处理人
+def update_ticket_assignee(
+        # 接收正在管理工单对象的数据库 Session
+        session: Session,
+        # 接收需要修改的 ORM 工单
+        ticket: TicketRecord,
+        # 字符串表示分配处理人，None 表示取消分配
+        new_assignee: str | None,
+        # 修改成功后返回更新后的 ORM 工单
+) -> TicketRecord:
+    # 捕获属性修改和事务提交过程中产生的数据库错误
+    try:
+        # 修改被当前 Session 跟踪的 ORM 对象
+        ticket.assigned_to = new_assignee
+
+        # 提交事务，SQLAlchemy 会执行 UPDATE
+        session.commit()
+
+    # 捕获 SQLAlchemy 数据库异常
+    except SQLAlchemyError as error:
+        # 撤销尚未成功提交的修改
+        session.rollback()
+
+        # 转换成项目统一使用的 RuntimeError
+        raise RuntimeError(
+            "修改工单处理人失败"
+        ) from error
+
+    # 提交成功后返回修改过的工单
+    return ticket
 
 # 删除一张已经存在的数据库工单
 def delete_ticket(

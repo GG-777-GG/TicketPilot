@@ -24,6 +24,8 @@ from ticketpilot.repository import (
     list_tickets,
     # 导入状态修改函数
     update_ticket_status,
+    # 导入处理人修改函数
+    update_ticket_assignee,
 )
 
 
@@ -386,4 +388,149 @@ def test_delete_ticket_rolls_back(
         assert rolled_back_ticket.id == "T-001"
 
     # 释放 Engine 管理的连接
+    test_engine.dispose()
+
+# 验证 Repository 可以分配并取消分配工单处理人
+def test_update_ticket_assignee_persists_and_clears() -> None:
+    # 创建本测试独享的内存数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 根据 ORM 模型创建数据库表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 使用第一个 Session 创建工单并分配处理人
+    with test_session_factory() as session:
+        # 创建一张尚未保存的工单
+        ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 先将工单保存到数据库
+        create_ticket(
+            session,
+            ticket,
+        )
+
+        # 将工单分配给张三
+        assigned_ticket = update_ticket_assignee(
+            session,
+            ticket,
+            "张三",
+        )
+
+        # 函数应该返回传入的同一个 ORM 对象
+        assert assigned_ticket is ticket
+        # 返回对象应该包含新的处理人
+        assert assigned_ticket.assigned_to == "张三"
+
+    # 使用新的 Session 验证处理人确实保存到了数据库
+    with test_session_factory() as session:
+        # 根据主键重新查询工单
+        stored_ticket = session.get(
+            TicketRecord,
+            "T-001",
+        )
+
+        # 工单必须仍然存在
+        assert stored_ticket is not None
+
+        # 新 Session 也能查询到处理人，证明已经持久化
+        assert stored_ticket.assigned_to == "张三"
+
+        # 传入 None，取消分配处理人
+        update_ticket_assignee(
+            session,
+            stored_ticket,
+            None,
+        )
+
+    # 再使用一个新 Session 验证 NULL 已经保存
+    with test_session_factory() as session:
+        # 重新查询工单
+        cleared_ticket = session.get(
+            TicketRecord,
+            "T-001",
+        )
+
+        # 工单本身没有被删除
+        assert cleared_ticket is not None
+
+        # 处理人已经被取消
+        assert cleared_ticket.assigned_to is None
+
+    # 释放数据库连接
+    test_engine.dispose()
+
+# 验证修改处理人提交失败时会恢复原来的值
+def test_update_ticket_assignee_rolls_back(
+        # pytest 提供临时替换工具
+        monkeypatch,
+) -> None:
+    # 创建本测试独享的内存数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 创建数据库表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建本测试使用的 Session
+    with test_session_factory() as session:
+        # 创建一张工单
+        ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 设置已经存在的处理人
+        ticket.assigned_to = "张三"
+
+        # 正常保存初始数据
+        create_ticket(
+            session,
+            ticket,
+        )
+
+        # 定义一个模拟提交失败的函数
+        def fake_commit() -> None:
+            # 模拟数据库提交异常
+            raise SQLAlchemyError(
+                "模拟数据库提交失败"
+            )
+
+        # 临时将当前 Session 的 commit 替换成失败函数
+        monkeypatch.setattr(
+            session,
+            "commit",
+            fake_commit,
+        )
+
+        # 验证数据库异常会被转换成项目异常
+        with pytest.raises(
+            RuntimeError,
+            match="修改工单处理人失败",
+        ):
+            # 尝试把处理人从张三改成李四
+            update_ticket_assignee(
+                session,
+                ticket,
+                "李四",
+            )
+
+        # rollback 后访问属性时，SQLAlchemy 会重新读取数据库
+        # 因此处理人应该恢复为提交前的张三
+        assert ticket.assigned_to == "张三"
+
+    # 释放数据库连接
     test_engine.dispose()
