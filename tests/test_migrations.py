@@ -109,3 +109,107 @@ def test_alembic_upgrade_and_downgrade(
     finally:
         # 释放测试数据库连接
         test_engine.dispose()
+
+# 验证增加 assigned_to 字段后，旧工单的数据仍然完整
+def test_assigned_to_migration_preserves_existing_ticket(
+        # pytest 提供独立临时目录，所有操作都在测试数据库中执行
+        tmp_path,
+) -> None:
+    # 指定本次测试使用的数据库文件
+    database_file = tmp_path / "existing-ticket-test.db"
+
+    # 将文件路径转换成 SQLite 数据库地址
+    database_url = f"sqlite:///{database_file.as_posix()}"
+
+    # 读取项目的 Alembic 配置
+    alembic_config = Config(
+        str(PROJECT_ROOT / "alembic.ini")
+    )
+
+    # 让 env.py 使用临时数据库地址
+    alembic_config.attributes["database_url"] = database_url
+
+    # 创建连接临时数据库的 Engine
+    test_engine = create_engine(database_url)
+
+    # 无论后面的迁移或断言是否成功，最终都要释放连接
+    try:
+        # 先升级到第一版，此时 tickets 表还没有 assigned_to
+        command.upgrade(
+            alembic_config,
+            "3807ef3dc440",
+        )
+
+        # 准备一张符合旧表结构的工单，供插入和后续核对使用
+        old_ticket = {
+            # 工单编号
+            "id": "T-OLD-001",
+            # 客户姓名
+            "customer_name": "GG",
+            # 联系邮箱
+            "contact_email": "gg@example.com",
+            # 来源渠道
+            "channel": "web",
+            # 工单标题
+            "subject": "升级前创建的工单",
+            # 问题描述
+            "description": "升级后这段内容应该仍然存在",
+            # 优先级
+            "priority": "high",
+            # 工单状态
+            "status": "open",
+        }
+
+        # 开启事务，退出这个 with 代码块时自动提交
+        with test_engine.begin() as connection:
+            # INSERT INTO 指定要写入的八个旧字段
+            # VALUES 中的 :字段名从 old_ticket 字典取得对应值
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO tickets (
+                        id, customer_name, contact_email, channel,
+                        subject, description, priority, status
+                    )
+                    VALUES (
+                        :id, :customer_name, :contact_email, :channel,
+                        :subject, :description, :priority, :status
+                    )
+                    """
+                ),
+                # 将工单字典作为 SQL 参数传入
+                old_ticket,
+            )
+
+        # 旧工单已经提交，现在执行增加 assigned_to 的迁移
+        command.upgrade(
+            alembic_config,
+            "9782abec9f36",
+        )
+
+        # 打开连接，查询升级后的旧工单
+        with test_engine.connect() as connection:
+            # 根据原来的工单编号，查询该工单的全部字段
+            result = connection.execute(
+                text(
+                    "SELECT * FROM tickets WHERE id = :id"
+                ),
+                # 向 SQL 中的 :id 占位符提供值
+                {"id": old_ticket["id"]},
+            )
+
+            # 取得恰好一行结果，并允许按字段名读取
+            saved_ticket = result.mappings().one()
+
+        # 遍历升级前的每个字段及其原始值
+        for field_name, original_value in old_ticket.items():
+            # 验证数据库里的旧字段值没有被迁移改变
+            assert saved_ticket[field_name] == original_value
+
+        # 验证新字段已经存在，旧工单尚未分配处理人
+        assert saved_ticket["assigned_to"] is None
+
+    # 即使测试失败，也执行资源清理
+    finally:
+        # 释放测试 Engine 的数据库连接
+        test_engine.dispose()

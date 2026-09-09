@@ -48,6 +48,15 @@ class TicketRecord(Base):
         String(20),
         nullable=False,
     )
+
+    # 保存当前负责处理工单的人员姓名
+    assigned_to: Mapped[str | None] = mapped_column(
+        # 数据库中最多保存 100 个字符
+        String(100),
+        # 允许数据库保存 NULL，表示工单尚未分配
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

@@ -295,7 +295,19 @@ flowchart TD
 
 ### 当前状态
 
-**第 0–3 课已完成。第 4 课批次 1–9 已完成：FastAPI 完整 CRUD 已迁移到 SQLAlchemy Repository；Alembic 初始迁移、生产启动职责切换及临时数据库升级/回滚测试均已完成。下一批次通过新增字段练习第二份迁移。**
+**第 0–3 课已完成。第 4 课批次 1–10 的代码与测试已完成：FastAPI 完整 CRUD 已迁移到 SQLAlchemy Repository；Alembic 初始迁移、第二份字段迁移及旧数据保留测试均已通过，全项目 39 项测试通过。当前待建立第二份迁移的 Git 检查点。**
+
+本次验收记录（2026-09-09，第 4 课批次 10）：
+
+- 上一批次检查点：`047e24d feat: manage database schema with Alembic`。
+- 在 `TicketRecord` 中增加 `assigned_to: Mapped[str | None]`，映射为允许 NULL 的 `String(100)` 列。
+- 先用 `alembic check` 观察 ORM 与数据库差异，再生成并审查第二份迁移。
+- 迁移链：`3807ef3dc440`（创建工单表）→ `9782abec9f36`（新增处理人字段）。
+- 已实际确认项目数据库版本为 `9782abec9f36 (head)`，存在 `assigned_to` 列，`alembic check` 未检测到新的结构差异。
+- 新增 `test_assigned_to_migration_preserves_existing_ticket`：在临时数据库的第一版表中插入旧工单，再升级到第二版，逐一验证八个旧字段保持不变、新字段为 `None`。
+- 使用参数化 SQL 准备旧版数据；通过 `Engine.begin()` 在升级前提交事务；通过 `mappings().one()` 按字段名读取并检查结果。
+- 实际运行全项目 pytest：`39 passed, 1 warning`；现有警告为 TestClient 依赖弃用提示。
+- 本批次只增加 ORM/数据库字段，API 请求与响应尚未暴露处理人字段。
 
 ### 第 0 课：环境、项目目录和第一个 Python 程序
 
@@ -840,7 +852,7 @@ __pycache__/
 | React、Docker、CI、README、演示与面试 | 8 |
 | **合计** | **约 65** |
 
-当前已完成约 25 个批次，约占 65 批基线的 38%，Python 命令行阶段已完成，FastAPI/数据库阶段已完成 15 个批次。实际总量会根据练习通过速度和调试情况在 60–70 之间调整。
+当前已完成约 26 个批次，约占 65 批基线的 40%，Python 命令行阶段已完成，FastAPI/数据库阶段已完成 16 个批次；第 4 课批次 10 的代码与测试已验收，Git 检查点待提交。实际总量会根据练习通过速度和调试情况在 60–70 之间调整。
 
 ---
 
@@ -891,7 +903,7 @@ __pycache__/
 | 第 1 课：变量、输入和输出 | 已完成 | 2026-08-31 | 2026-08-31 | 待本阶段提交 | 批次 1–5 已通过，已实现 JSON 持久化 |
 | 第 2 课：函数与工单数据 | 已完成 | 2026-08-31 | 2026-09-01 | `e4cc33b` / `v0.1-cli-ticket` | dataclass、模块化、JSON 持久化与 12 项 pytest 测试通过 |
 | 第 3 课：FastAPI 与 HTTP API | 已完成 | 2026-09-01 | 2026-09-02 | `f8f5208` / `v0.2-fastapi-crud` | 27 项测试通过；健康检查、请求校验、完整 CRUD、错误响应与失败回滚均完成 |
-| 第 4 课：SQLAlchemy ORM 与关系型数据库 | 进行中 | 2026-09-03 |  | 待本阶段提交 | 批次 1–9 已通过；API 已使用 Repository；Alembic 初始迁移及升级/回滚测试完成，38 项测试通过 |
+| 第 4 课：SQLAlchemy ORM 与关系型数据库 | 进行中 | 2026-09-03 |  | `e423238`、`047e24d`；批次 10 待提交 | 批次 1–10 的代码与测试已通过；API 已使用 Repository；Alembic 两份迁移、升级/回滚及旧数据保留测试完成，39 项测试通过 |
 
 新课程在进入对应阶段时继续添加，避免一次列出大量没有上下文的细碎任务。
 
@@ -927,6 +939,7 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 | FastAPI lifespan 与真实数据库 GET 集成链路 | 1/1 通过 | 本地执行 `uv run pytest -v`；全项目 36 项通过 |
 | POST 请求 DTO 到 ORM、Repository 和数据库集成链路 | 2/2 通过 | 本地执行 `uv run pytest -v`；全项目 37 项通过 |
 | 数据库版 FastAPI 完整 CRUD 集成链路 | 17/17 通过 | 临时 SQLite 覆盖 POST、GET、PATCH、DELETE；全项目 37 项通过 |
+| Alembic 升级/回滚与第二份迁移旧数据保留 | 2/2 通过 | 2026-09-09 实际运行全项目 pytest：39 项通过；临时 SQLite 验证八个旧字段不变，assigned_to 为 NULL |
 
 | 指标 | 最终目标 | 当前结果 | 数据集规模 | 证据位置 |
 |---|---:|---:|---:|---|
