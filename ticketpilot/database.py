@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from pathlib import Path
+
 
 from sqlalchemy import (
     Engine,
@@ -11,10 +11,13 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_FILE = BASE_DIR / "data" / "ticketpilot.db"
-DATABASE_URL = f"sqlite:///{DATABASE_FILE.as_posix()}"
+# 导入默认数据库文件路径和统一配置对象
+from ticketpilot.config import (
+    DEFAULT_DATABASE_FILE,
+    settings,
+)
 
+DATABASE_URL = settings.database_url
 
 # 为项目中的 SQLAlchemy ORM 模型提供公共基类
 class Base(DeclarativeBase):
@@ -45,10 +48,11 @@ def build_session_factory(
     )
 
 
-# 确保保存 SQLite 数据库的 data 文件夹存在
-DATABASE_FILE.parent.mkdir(
+# 确保默认 SQLite 数据库所在的 data 文件夹存在
+DEFAULT_DATABASE_FILE.parent.mkdir(
     # 如果上级目录不存在，也一起创建
     parents=True,
+
     # 文件夹已经存在时不报错
     exist_ok=True,
 )
