@@ -1,6 +1,11 @@
+from datetime import datetime
+
+# 导入数据库字段类型和 SQL 函数
 from sqlalchemy import (
+    DateTime,
     String,
-    Text
+    Text,
+    func,
 )
 
 from sqlalchemy.orm import (
@@ -61,4 +66,30 @@ class TicketRecord(Base):
         String(20),
         nullable=False,
         default="open",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        # PostgreSQL 中使用带时区的时间类型
+        DateTime(timezone=True),
+
+        # 每张工单都必须有创建时间
+        nullable=False,
+
+        # 插入数据时由数据库自动生成当前时间
+        server_default=func.now(),
+    )
+
+    # 保存工单最后一次被修改的时间
+    updated_at: Mapped[datetime] = mapped_column(
+        # PostgreSQL 中使用带时区的时间类型
+        DateTime(timezone=True),
+
+        # 每张工单都必须有更新时间
+        nullable=False,
+
+        # 新建工单时由数据库生成初始更新时间
+        server_default=func.now(),
+
+        # SQLAlchemy 更新工单时自动写入新的当前时间
+        onupdate=func.now(),
     )

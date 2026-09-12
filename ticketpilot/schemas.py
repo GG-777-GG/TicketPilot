@@ -1,3 +1,7 @@
+
+# 导入 Python 的日期时间类型，用于描述 API 中的时间数据
+from datetime import datetime
+
 from typing import Literal
 
 from pydantic import (
@@ -90,3 +94,9 @@ class TicketResponse(BaseModel):
     status: TicketStatus
     # 返回当前处理人；None 表示尚未分配
     assigned_to: str | None
+
+    # 返回工单在数据库中的创建时间
+    created_at: datetime
+
+    # 返回工单最后一次被修改的时间
+    updated_at: datetime

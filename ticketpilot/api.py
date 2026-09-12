@@ -56,24 +56,45 @@ app = FastAPI(
     version="0.2.0",
 )
 
-
 # 将数据库 ORM 工单转换成 API 响应模型
 def to_ticket_response(
-        # 接收从 Repository 得到的数据库工单
-        ticket: TicketRecord,
-        # 返回客户端可以看到的响应 DTO
+    # 接收从数据库查询出来的 TicketRecord
+    ticket: TicketRecord,
 ) -> TicketResponse:
+    # 创建并返回 Pydantic 响应对象
     return TicketResponse(
+        # 返回工单 ID
         id=ticket.id,
+
+        # 返回客户姓名
         customer_name=ticket.customer_name,
+
+        # 返回联系邮箱
         contact_email=ticket.contact_email,
+
+        # 返回工单渠道
         channel=ticket.channel,
+
+        # 返回工单标题
         subject=ticket.subject,
+
+        # 返回工单描述
         description=ticket.description,
+
+        # 返回优先级
         priority=ticket.priority,
+
+        # 返回工单状态
         status=ticket.status,
-        # 把数据库中的处理人放入 API 响应
+
+        # 返回当前处理人
         assigned_to=ticket.assigned_to,
+
+        # 返回数据库生成的创建时间
+        created_at=ticket.created_at,
+
+        # 返回数据库维护的最后更新时间
+        updated_at=ticket.updated_at,
     )
 
 

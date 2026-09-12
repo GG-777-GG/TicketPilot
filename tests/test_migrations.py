@@ -213,3 +213,130 @@ def test_assigned_to_migration_preserves_existing_ticket(
     finally:
         # 释放测试 Engine 的数据库连接
         test_engine.dispose()
+
+# 验证时间字段迁移能够为旧工单补上创建时间和更新时间
+def test_timestamp_migration_backfills_existing_ticket(
+    tmp_path,
+) -> None:
+    # 在 pytest 的临时目录中创建一个测试数据库
+    # 不会影响 Docker 中真正的 PostgreSQL 数据库
+    database_file = tmp_path / "timestamp-migration-test.db"
+
+    # 生成这个临时 SQLite 数据库的连接地址
+    database_url = f"sqlite:///{database_file.as_posix()}"
+
+    # 读取项目中的 Alembic 配置文件
+    alembic_config = Config(
+        str(PROJECT_ROOT / "alembic.ini")
+    )
+
+    # 让本次测试使用临时数据库
+    alembic_config.attributes["database_url"] = database_url
+
+    # 创建测试数据库的 Engine
+    test_engine = create_engine(database_url)
+
+    try:
+        # 先把数据库升级到“还没有时间字段”的旧版本
+        command.upgrade(
+            alembic_config,
+            "9782abec9f36",
+        )
+
+        # 模拟数据库中已经存在的一张旧工单
+        # 这里故意不提供 created_at 和 updated_at
+        old_ticket = {
+            "id": "T-TIME-001",
+            "customer_name": "GG",
+            "contact_email": "gg@example.com",
+            "channel": "web",
+            "subject": "时间字段迁移测试",
+            "description": "升级后旧数据和时间字段都应该正确",
+            "priority": "high",
+            "status": "open",
+            "assigned_to": "张三",
+        }
+
+        # 开启一个数据库事务
+        with test_engine.begin() as connection:
+            # 把旧工单直接插入旧版本的 tickets 表
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO tickets (
+                        id,
+                        customer_name,
+                        contact_email,
+                        channel,
+                        subject,
+                        description,
+                        priority,
+                        status,
+                        assigned_to
+                    )
+                    VALUES (
+                        :id,
+                        :customer_name,
+                        :contact_email,
+                        :channel,
+                        :subject,
+                        :description,
+                        :priority,
+                        :status,
+                        :assigned_to
+                    )
+                    """
+                ),
+                old_ticket,
+            )
+
+        # 执行我们刚刚编写的时间字段迁移
+        command.upgrade(
+            alembic_config,
+            "1546b4e6b921",
+        )
+
+        # 查询升级后的旧工单
+        with test_engine.connect() as connection:
+            result = connection.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM tickets
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": old_ticket["id"],
+                },
+            )
+
+            # one() 表示这里必须刚好查到一条记录
+            saved_ticket = result.mappings().one()
+
+        # 检查旧工单原来的数据没有被迁移破坏
+        for field_name, original_value in old_ticket.items():
+            assert saved_ticket[field_name] == original_value
+
+        # 检查迁移为旧工单补上了创建时间
+        assert saved_ticket["created_at"] is not None
+
+        # 检查迁移为旧工单补上了更新时间
+        assert saved_ticket["updated_at"] is not None
+
+        # 旧数据迁移时，两个时间应该使用相同的初始时间
+        assert saved_ticket["updated_at"] == saved_ticket["created_at"]
+
+        # 读取升级后 tickets 表的字段结构
+        columns = {
+            column["name"]: column
+            for column in inspect(test_engine).get_columns("tickets")
+        }
+
+        # 检查两个时间字段最终都不允许为 NULL
+        assert columns["created_at"]["nullable"] is False
+        assert columns["updated_at"]["nullable"] is False
+
+    finally:
+        # 无论测试通过还是失败，都释放数据库连接
+        test_engine.dispose()

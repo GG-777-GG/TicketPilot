@@ -9,6 +9,24 @@ from ticketpilot.api import app
 # 导入 ORM 工单，用于模拟数据库 Repository 的返回结果
 from ticketpilot.db_models import TicketRecord
 
+# 导入日期时间类型和 UTC 时区
+from datetime import (
+    UTC,
+    datetime,
+)
+
+# 测试统一使用固定时间，避免每次运行结果不同
+TEST_TIMESTAMP = datetime(
+    # 年
+    2026,
+    # 月
+    1,
+    # 日
+    1,
+    # 使用 UTC 时区
+    tzinfo=UTC,
+)
+
 client = TestClient(app)
 
 
@@ -38,6 +56,12 @@ def test_create_ticket_returns_created_ticket(
             # 接收 API 构造的 ORM 工单
             ticket_record: TicketRecord,
     ) -> TicketRecord:
+        # 模拟数据库为新工单生成创建时间
+        ticket_record.created_at = TEST_TIMESTAMP
+
+        # 模拟数据库为新工单生成更新时间
+        ticket_record.updated_at = TEST_TIMESTAMP
+
         # 记录收到的 ORM 工单
         saved_ticket_records.append(
             ticket_record
@@ -94,6 +118,23 @@ def test_create_ticket_returns_created_ticket(
 
     # 验证新工单创建时还没有分配处理人
     assert response_data["assigned_to"] is None
+
+    # 把 JSON 中的创建时间字符串转换回 datetime
+    # 然后检查它是不是我们设置的固定测试时间
+    assert (
+            datetime.fromisoformat(
+                response_data["created_at"]
+            )
+            == TEST_TIMESTAMP
+    )
+
+    # 检查 API 返回的更新时间是否正确
+    assert (
+            datetime.fromisoformat(
+                response_data["updated_at"]
+            )
+            == TEST_TIMESTAMP
+    )
 
     # 验证 Repository 被调用了一次
     assert len(saved_ticket_records) == 1
@@ -226,6 +267,11 @@ def make_database_ticket(
         priority="high",
         # 设置工单状态
         status="open",
+        # 模拟数据库生成的创建时间
+        created_at=TEST_TIMESTAMP,
+
+        # 模拟数据库生成的更新时间
+        updated_at=TEST_TIMESTAMP,
     )
 
 

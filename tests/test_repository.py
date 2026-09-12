@@ -1,5 +1,9 @@
 # 导入 pytest，用来验证预期异常
 import pytest
+
+# 导入 datetime，用来设置一个固定的旧时间
+from datetime import datetime
+
 from sqlalchemy.exc import SQLAlchemyError
 
 # 导入数据库配置构造函数
@@ -112,6 +116,18 @@ def test_repository_creates_and_reads_tickets() -> None:
 
         # 验证创建操作返回了第一张工单
         assert created_first_ticket.id == "T-001"
+
+        # 验证数据库自动生成了创建时间
+        assert created_first_ticket.created_at is not None
+
+        # 验证数据库自动生成了更新时间
+        assert created_first_ticket.updated_at is not None
+
+        # 新建工单时，创建时间和更新时间应该相同
+        assert (
+                created_first_ticket.created_at
+                == created_first_ticket.updated_at
+        )
 
         # 验证列表查询得到了两张工单
         assert len(all_tickets) == 2
@@ -533,4 +549,78 @@ def test_update_ticket_assignee_rolls_back(
         assert ticket.assigned_to == "张三"
 
     # 释放数据库连接
+    test_engine.dispose()
+
+# 验证修改工单状态时会刷新 updated_at
+def test_update_ticket_status_refreshes_updated_at() -> None:
+    # 创建本测试独享的内存 SQLite 数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 根据 ORM 模型创建 tickets 表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建并自动关闭测试 Session
+    with test_session_factory() as session:
+        # 创建一张尚未保存的工单
+        ticket = make_ticket_record(
+            "T-TIME-001",
+        )
+
+        # 保存工单，让数据库生成初始时间
+        created_ticket = create_ticket(
+            session,
+            ticket,
+        )
+
+        # 保存最初的创建时间
+        original_created_at = (
+            created_ticket.created_at
+        )
+
+        # 手动把更新时间设置成一个很早的时间
+        # 这样不需要使用 sleep 等待时间变化
+        created_ticket.updated_at = datetime(
+            2000,
+            1,
+            1,
+        )
+
+        # 把这个旧时间保存到测试数据库
+        session.commit()
+
+        # 记录状态修改前的更新时间
+        old_updated_at = (
+            created_ticket.updated_at
+        )
+
+        # 修改工单状态
+        updated_ticket = update_ticket_status(
+            session,
+            created_ticket,
+            "resolved",
+        )
+
+        # 验证业务字段已经修改成功
+        assert updated_ticket.status == "resolved"
+
+        # 修改工单不能改变创建时间
+        assert (
+            updated_ticket.created_at
+            == original_created_at
+        )
+
+        # onupdate 应该把更新时间改成当前时间
+        assert (
+            updated_ticket.updated_at
+            > old_updated_at
+        )
+
+    # 释放测试数据库连接
     test_engine.dispose()
