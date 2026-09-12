@@ -1,0 +1,51 @@
+# services 表示这个项目需要运行的容器服务
+services:
+  # database 是我们给 PostgreSQL 服务起的名字
+  database:
+    # 使用 PostgreSQL 18 官方镜像
+    # 固定主版本，避免自动升级到未来不兼容的大版本
+    image: postgres:18
+
+    # 第一次创建数据库时使用的初始化配置
+    environment:
+      # 创建名为 ticketpilot 的数据库
+      # 如果 .env 设置了 POSTGRES_DB，就优先使用 .env
+      POSTGRES_DB: ${POSTGRES_DB:-ticketpilot}
+
+      # 创建用于连接数据库的用户
+      POSTGRES_USER: ${POSTGRES_USER:-ticketpilot}
+
+      # 设置本地开发密码
+      # 这里只是开发环境默认值，生产环境不能使用
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketpilot-local-password}
+
+    # 把 Windows 的 5432 端口映射到容器的 5432 端口
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    # 把数据库文件保存在 Docker 数据卷中
+    # 删除并重新创建容器后，工单数据仍然存在
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+    # 定期检查 PostgreSQL 是否已经可以接受连接
+    healthcheck:
+      # 使用 PostgreSQL 自带的工具检查数据库是否可以连接
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+
+      # 每隔 5 秒检查一次
+      interval: 5s
+
+      # 单次检查超过 5 秒就算失败
+      timeout: 5s
+
+      # 连续失败 10 次才标记为 unhealthy
+      retries: 10
+
+      # 启动后的前 10 秒作为初始化时间
+      start_period: 10s
+
+# 声明上面使用的 Docker 数据卷
+volumes:
+  # Docker 会负责创建和管理这个数据卷
+  postgres_data:

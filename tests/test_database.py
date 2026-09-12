@@ -116,3 +116,33 @@ def test_get_session_closes_session(
 
     # 验证 finally 已经调用 Session.close()
     assert fake_session.closed is True
+
+
+# 验证 SQLAlchemy 能够加载 Psycopg 3 PostgreSQL 驱动
+def test_build_engine_supports_postgresql_driver() -> None:
+    # 准备一个 PostgreSQL 测试连接地址
+    # 这里只检查驱动，不会真正连接数据库服务器
+    database_url = (
+        "postgresql+psycopg://"
+        "ticketpilot:test-password@"
+        "127.0.0.1:5432/ticketpilot"
+    )
+
+    # 根据 PostgreSQL 地址创建测试 Engine
+    # create_engine 使用延迟连接，此时不会访问数据库
+    test_engine = build_engine(
+        database_url,
+    )
+
+    # 使用 try/finally 保证测试结束后释放 Engine
+    try:
+        # 验证 SQLAlchemy 识别出的数据库是 PostgreSQL
+        assert test_engine.dialect.name == "postgresql"
+
+        # 验证加载的是 Psycopg 3，而不是旧的 psycopg2
+        assert test_engine.dialect.driver == "psycopg"
+
+    # 无论断言是否通过，最后都执行资源清理
+    finally:
+        # 释放 Engine 管理的连接池资源
+        test_engine.dispose()
