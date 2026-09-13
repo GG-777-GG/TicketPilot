@@ -87,6 +87,30 @@ def test_repository_creates_and_reads_tickets() -> None:
             "T-002",
         )
 
+        # 给第一张工单设置固定的较早创建时间
+        first_ticket.created_at = datetime(
+            2026,
+            1,
+            1,
+        )
+
+        # 设置第一张工单的初始更新时间
+        first_ticket.updated_at = (
+            first_ticket.created_at
+        )
+
+        # 给第二张工单设置固定的较晚创建时间
+        second_ticket.created_at = datetime(
+            2026,
+            1,
+            2,
+        )
+
+        # 设置第二张工单的初始更新时间
+        second_ticket.updated_at = (
+            second_ticket.created_at
+        )
+
         # 调用 Repository 保存第一张工单
         created_first_ticket = create_ticket(
             session,
@@ -132,8 +156,11 @@ def test_repository_creates_and_reads_tickets() -> None:
         # 验证列表查询得到了两张工单
         assert len(all_tickets) == 2
 
-        # 验证排序后的第一张工单是 T-001
-        assert all_tickets[0].id == "T-001"
+        # T-002 创建时间较晚，因此应该排在第一位
+        assert all_tickets[0].id == "T-002"
+
+        # T-001 创建时间较早，因此应该排在第二位
+        assert all_tickets[1].id == "T-001"
 
         # 验证存在的工单能够被找到
         assert found_ticket is not None
@@ -621,6 +648,127 @@ def test_update_ticket_status_refreshes_updated_at() -> None:
             updated_ticket.updated_at
             > old_updated_at
         )
+
+    # 释放测试数据库连接
+    test_engine.dispose()
+
+# 验证 Repository 会稳定排序并执行 limit/offset 分页
+def test_list_tickets_applies_stable_pagination() -> None:
+    # 创建本测试独享的内存 SQLite 数据库
+    test_engine = build_engine(
+        "sqlite:///:memory:",
+    )
+
+    # 根据 ORM 模型创建 tickets 表
+    create_tables(test_engine)
+
+    # 创建绑定测试数据库的 Session 工厂
+    test_session_factory = build_session_factory(
+        test_engine,
+    )
+
+    # 创建并自动关闭测试 Session
+    with test_session_factory() as session:
+        # 创建时间最早的工单
+        oldest_ticket = make_ticket_record(
+            "T-001",
+        )
+
+        # 设置创建时间
+        oldest_ticket.created_at = datetime(
+            2026,
+            1,
+            1,
+        )
+
+        # 设置初始更新时间
+        oldest_ticket.updated_at = (
+            oldest_ticket.created_at
+        )
+
+        # 创建第一张相同时间的工单
+        same_time_second_ticket = make_ticket_record(
+            "T-003",
+        )
+
+        # T-003 和 T-002 使用相同创建时间
+        same_time_second_ticket.created_at = datetime(
+            2026,
+            1,
+            3,
+        )
+
+        # 设置初始更新时间
+        same_time_second_ticket.updated_at = (
+            same_time_second_ticket.created_at
+        )
+
+        # 创建时间最新的工单
+        newest_ticket = make_ticket_record(
+            "T-004",
+        )
+
+        # 最新工单使用 1 月 4 日
+        newest_ticket.created_at = datetime(
+            2026,
+            1,
+            4,
+        )
+
+        # 设置初始更新时间
+        newest_ticket.updated_at = (
+            newest_ticket.created_at
+        )
+
+        # 创建第二张相同时间的工单
+        same_time_first_ticket = make_ticket_record(
+            "T-002",
+        )
+
+        # 与 T-003 使用相同创建时间
+        same_time_first_ticket.created_at = datetime(
+            2026,
+            1,
+            3,
+        )
+
+        # 设置初始更新时间
+        same_time_first_ticket.updated_at = (
+            same_time_first_ticket.created_at
+        )
+
+        # 故意不按照最终查询顺序插入
+        # 用来证明结果来自 ORDER BY，而不是插入顺序
+        for ticket in [
+            oldest_ticket,
+            same_time_second_ticket,
+            newest_ticket,
+            same_time_first_ticket,
+        ]:
+            # 保存当前测试工单
+            create_ticket(
+                session,
+                ticket,
+            )
+
+        # 按照稳定顺序查询：
+        # 完整顺序应为 T-004、T-002、T-003、T-001
+        # offset=1 跳过 T-004
+        # limit=2 只取 T-002 和 T-003
+        page = list_tickets(
+            session,
+            limit=2,
+            offset=1,
+        )
+
+        # 提取分页结果中的 ID，并验证顺序
+        assert [
+            ticket.id
+            for ticket in page
+        ] == [
+            "T-002",
+            "T-003",
+        ]
 
     # 释放测试数据库连接
     test_engine.dispose()

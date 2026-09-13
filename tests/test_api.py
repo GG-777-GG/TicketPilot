@@ -2,6 +2,9 @@ from fastapi.testclient import TestClient
 
 import ticketpilot.api as api
 
+# 导入 pytest，用于使用参数化测试
+import pytest
+
 # 导入数据库模块，用于构造测试专用数据库
 import ticketpilot.database as database
 from ticketpilot.api import app
@@ -275,25 +278,52 @@ def make_database_ticket(
     )
 
 
-# 验证列表接口会返回 Repository 查询到的数据库工单
+# 验证列表接口使用默认分页参数查询工单
 def test_list_tickets_returns_all_tickets(
-        # 使用 monkeypatch 隔离真实数据库
-        monkeypatch,
+    # 使用 monkeypatch 隔离真实数据库
+    monkeypatch,
 ) -> None:
+    # 保存 API 传给 Repository 的分页参数
+    received_pagination: list[
+        tuple[int, int]
+    ] = []
+
+    # 定义模拟的 Repository 列表查询函数
+    def fake_list_tickets(
+        # 接收路由注入的 Session
+        session,
+        # 星号表示后面的参数必须按名称传递
+        *,
+        # 接收 API 传入的 limit
+        limit: int,
+        # 接收 API 传入的 offset
+        offset: int,
+    ) -> list[TicketRecord]:
+        # 记录收到的分页参数
+        received_pagination.append(
+            (
+                limit,
+                offset,
+            )
+        )
+
+        # 模拟 Repository 返回两张工单
+        return [
+            make_database_ticket("T-001"),
+            make_database_ticket("T-002"),
+        ]
+
     # 临时替换 Repository 的列表查询函数
     monkeypatch.setattr(
         # 指定 Repository 模块
         api.ticket_repository,
-        # 指定需要替换的函数名
+        # 指定需要替换的函数
         "list_tickets",
-        # 模拟 Repository 返回两张 ORM 工单
-        lambda session: [
-            make_database_ticket("T-001"),
-            make_database_ticket("T-002"),
-        ],
+        # 指定测试使用的假函数
+        fake_list_tickets,
     )
 
-    # 向 FastAPI 发送查询全部工单请求
+    # 不提供分页参数，请求工单列表
     response = client.get(
         "/v1/tickets"
     )
@@ -301,15 +331,130 @@ def test_list_tickets_returns_all_tickets(
     # 验证请求成功
     assert response.status_code == 200
 
+    # 验证 API 使用默认 limit=20、offset=0
+    assert received_pagination == [
+        (
+            20,
+            0,
+        )
+    ]
+
+    # 取得响应 JSON
+    response_data = response.json()
+
     # 验证返回两张工单
-    assert len(response.json()) == 2
+    assert len(response_data) == 2
 
     # 验证第一张工单 ID
-    assert response.json()[0]["id"] == "T-001"
+    assert response_data[0]["id"] == "T-001"
 
     # 验证第二张工单 ID
-    assert response.json()[1]["id"] == "T-002"
+    assert response_data[1]["id"] == "T-002"
 
+# 验证 API 会把自定义分页参数传给 Repository
+def test_list_tickets_uses_custom_pagination(
+    # 使用 monkeypatch 隔离真实数据库
+    monkeypatch,
+) -> None:
+    # 保存 Repository 实际收到的分页参数
+    received_pagination: list[
+        tuple[int, int]
+    ] = []
+
+    # 定义模拟的 Repository 列表查询函数
+    def fake_list_tickets(
+        # 接收路由注入的 Session
+        session,
+        # 后面的分页参数必须按名称传递
+        *,
+        # 接收 API 解析后的 limit
+        limit: int,
+        # 接收 API 解析后的 offset
+        offset: int,
+    ) -> list[TicketRecord]:
+        # 记录 Repository 收到的参数
+        received_pagination.append(
+            (
+                limit,
+                offset,
+            )
+        )
+
+        # 模拟当前页只返回一张工单
+        return [
+            make_database_ticket("T-002"),
+        ]
+
+    # 临时替换真正的 Repository 查询函数
+    monkeypatch.setattr(
+        # 指定 Repository 模块
+        api.ticket_repository,
+        # 指定需要替换的函数
+        "list_tickets",
+        # 指定测试使用的假函数
+        fake_list_tickets,
+    )
+
+    # 在 URL 中提供自定义 limit 和 offset
+    response = client.get(
+        "/v1/tickets?limit=2&offset=1"
+    )
+
+    # 验证请求成功
+    assert response.status_code == 200
+
+    # 验证字符串查询参数被转换成整数并传给 Repository
+    assert received_pagination == [
+        (
+            2,
+            1,
+        )
+    ]
+
+    # 取得响应 JSON
+    response_data = response.json()
+
+    # 验证假 Repository 返回的工单进入了 API 响应
+    assert len(response_data) == 1
+
+    # 验证返回的是预期工单
+    assert response_data[0]["id"] == "T-002"
+
+# 使用四组不同参数重复运行下面的测试
+@pytest.mark.parametrize(
+    # 每次把一个字符串传给 query_string
+    "query_string",
+
+    # 定义需要测试的非法查询参数
+    [
+        # limit 不能小于 1
+        "limit=0",
+
+        # limit 不能超过 100
+        "limit=101",
+
+        # offset 不能小于 0
+        "offset=-1",
+
+        # limit 必须是整数
+        "limit=abc",
+    ],
+)
+# 验证非法分页参数会返回 HTTP 422
+def test_list_tickets_rejects_invalid_pagination(
+    # 接收本轮测试使用的查询字符串
+    query_string: str,
+) -> None:
+    # 把当前查询字符串放入请求 URL
+    response = client.get(
+        f"/v1/tickets?{query_string}"
+    )
+
+    # 验证 FastAPI 拒绝了不合法的参数
+    assert response.status_code == 422
+
+    # 验证响应中包含具体的参数错误信息
+    assert "detail" in response.json()
 
 # 验证单张查询接口会返回 Repository 找到的数据库工单
 def test_get_ticket_returns_matching_ticket(
@@ -388,12 +533,17 @@ def test_list_tickets_returns_500_when_database_fails(
     def fake_list_tickets(
             # 接收路由注入的 Session
             session,
+            # 后面的分页参数必须按名称传递
+            *,
+            # 接收 API 传入的 limit
+            limit: int,
+            # 接收 API 传入的 offset
+            offset: int,
     ) -> list[TicketRecord]:
         # 模拟 Repository 已转换的数据库错误
         raise RuntimeError(
             "查询工单列表失败"
         )
-
     # 替换真正的 Repository 列表查询
     monkeypatch.setattr(
         # 指定 Repository 模块

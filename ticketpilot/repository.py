@@ -42,39 +42,60 @@ def create_ticket(
     return ticket
 
 
-# 查询数据库中的全部工单
+# 分页查询数据库中的工单
 def list_tickets(
-        # 接收本次查询使用的数据库 Session
-        session: Session,
-        # 声明返回由 TicketRecord 组成的列表
+    # 接收本次查询使用的数据库 Session
+    session: Session,
+    # 星号表示后面的参数必须使用参数名称传递
+    *,
+    # 本次最多查询 20 张工单
+    limit: int = 20,
+    # 默认不跳过任何工单
+    offset: int = 0,
 ) -> list[TicketRecord]:
-    # 使用 try 捕获查询过程中可能出现的数据库异常
+    # 捕获数据库查询异常
     try:
-        # 构造查询 TicketRecord 的 SELECT 语句
-        statement = select(
-            TicketRecord
-            # 按工单 ID 排序，使返回结果保持稳定
-        ).order_by(
-            TicketRecord.id
+        # 构造分页查询语句
+        statement = (
+            # 查询 tickets 表对应的 ORM 对象
+            select(TicketRecord)
+
+            # 首先按照创建时间倒序排列
+            # 最新创建的工单排在最前面
+            .order_by(
+                TicketRecord.created_at.desc(),
+
+                # 创建时间相同时按照唯一 ID 排序
+                # 保证每次分页顺序稳定
+                TicketRecord.id.asc(),
+            )
+
+            # 跳过前面的 offset 条数据
+            .offset(offset)
+
+            # 最多返回 limit 条数据
+            .limit(limit)
         )
 
-        # 执行查询，并取得由 ORM 对象组成的结果
-        result = session.scalars(statement)
+        # 执行 SQL 并取得 ORM 查询结果
+        result = session.scalars(
+            statement
+        )
 
-        # 将查询结果转换成普通 Python 列表并返回
-        return list(result.all())
+        # 转换成普通 Python 列表并返回
+        return list(
+            result.all()
+        )
 
-    # 捕获数据库连接、SQL 执行等 SQLAlchemy 异常
+    # 捕获 SQLAlchemy 数据库异常
     except SQLAlchemyError as error:
-        # 让当前 Session 离开失败的事务状态
+        # 清理失败的数据库事务
         session.rollback()
 
-        # 转换为业务代码更容易理解的 RuntimeError
+        # 转换成项目统一的异常
         raise RuntimeError(
             "查询工单列表失败"
-            # 保留原始数据库异常用于排查
         ) from error
-
 
 # 根据主键 ID 查询一张工单
 def get_ticket_by_id(

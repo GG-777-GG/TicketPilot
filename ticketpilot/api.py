@@ -14,6 +14,8 @@ from fastapi import (
     HTTPException,
     # 提供带名称的 HTTP 状态码
     status,
+    # 定义并验证 URL 查询参数
+    Query,
 )
 
 # 导入 SQLAlchemy Session 类型
@@ -106,48 +108,81 @@ def health_check() -> dict[str, str]:
         "service": "TicketPilot"
     }
 
-
-# 查询全部工单
-# 从数据库查询全部工单
+# 分页查询数据库中的工单
 @app.get(
     # 定义接口地址
     "/v1/tickets",
-    # 声明响应是 TicketResponse 列表
+
+    # 声明响应仍然是 TicketResponse 列表
     response_model=list[TicketResponse],
+
     # 在 Swagger 文档中归入 tickets 分组
     tags=["tickets"],
 )
 def list_tickets(
-        # 由 FastAPI 为本次请求注入数据库 Session
-        session: DatabaseSession,
-        # 返回 TicketResponse 列表
+    # 由 FastAPI 为本次请求注入数据库 Session
+    session: DatabaseSession,
+
+    # 接收 URL 中的 limit 查询参数
+    limit: Annotated[
+        # 参数必须是整数
+        int,
+
+        # 最小为 1，最大为 100
+        Query(
+            ge=1,
+            le=100,
+        ),
+    # 客户端没有提供时，默认查询 20 条
+    ] = 20,
+
+    # 接收 URL 中的 offset 查询参数
+    offset: Annotated[
+        # 参数必须是整数
+        int,
+
+        # offset 不能小于 0
+        Query(
+            ge=0,
+        ),
+    # 客户端没有提供时，默认不跳过数据
+    ] = 0,
+
+    # 返回分页后的工单列表
 ) -> list[TicketResponse]:
-    # 捕获 Repository 转换后的数据库异常
+    # 捕获 Repository 查询时的数据库异常
     try:
-        # 调用 Repository，从数据库取得 ORM 工单列表
+        # 调用 Repository 查询指定的一页工单
         ticket_records = ticket_repository.list_tickets(
-            session
+            # 传入当前请求的数据库 Session
+            session,
+
+            # 传入本次最多返回的数量
+            limit=limit,
+
+            # 传入需要跳过的数量
+            offset=offset,
         )
 
-    # 捕获 Repository 提供的稳定 RuntimeError
+    # 捕获 Repository 转换后的数据库异常
     except RuntimeError as error:
-        # 转换成不泄漏数据库细节的 HTTP 500
+        # 转换成统一的 HTTP 500
         raise HTTPException(
-            # 设置内部服务错误状态码
+            # 设置服务器内部错误状态码
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            # 设置客户端可以看到的统一错误消息
+
+            # 不向客户端泄漏数据库错误细节
             detail="工单服务暂时不可用",
-            # 保留原始异常链
         ) from error
 
-    # 逐个把 TicketRecord 转换成 TicketResponse
+    # 将查询到的 ORM 工单逐个转换成 API 响应
     return [
         # 转换当前 ORM 工单
         to_ticket_response(ticket_record)
-        # 遍历数据库查询结果
+
+        # 遍历 Repository 返回的当前页数据
         for ticket_record in ticket_records
     ]
-
 
 # 根据工单 ID 从数据库查询一张工单
 @app.get(
