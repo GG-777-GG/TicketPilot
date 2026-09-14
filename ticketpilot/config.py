@@ -2,7 +2,13 @@
 from pathlib import Path
 
 # Field 用来给配置字段设置默认值和验证规则
-from pydantic import Field
+from pydantic import (
+    # Field 用于设置默认值和验证规则
+    Field,
+
+    # SecretStr 会隐藏密钥，避免日志直接打印它
+    SecretStr,
+)
 
 # BaseSettings 负责从环境变量和 .env 文件读取配置
 # SettingsConfigDict 负责设置读取配置的规则
@@ -29,6 +35,15 @@ DEFAULT_DATABASE_URL = (
     f"sqlite:///{DEFAULT_DATABASE_FILE.as_posix()}"
 )
 
+# 仅用于本地开发和自动化测试的默认 JWT 密钥
+# 生产环境必须通过环境变量覆盖它
+DEVELOPMENT_JWT_SECRET_KEY = SecretStr(
+    "ticketpilot-development-only-secret-key-change-me"
+)
+
+
+# JWT 默认有效 30 分钟
+DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # 集中定义 TicketPilot 的所有环境配置
 # 类似 Spring Boot 中的 @ConfigurationProperties
@@ -53,7 +68,26 @@ class Settings(BaseSettings):
         # 不允许 DATABASE_URL 是空字符串
         min_length=1,
     )
+    # JWT 签名使用的秘密密钥
+    jwt_secret_key: SecretStr = Field(
+        # 没有环境变量时使用开发测试密钥
+        default=DEVELOPMENT_JWT_SECRET_KEY,
 
+        # 密钥至少包含 32 个字符
+        min_length=32,
+    )
+
+    # 登录令牌的有效分钟数
+    access_token_expire_minutes: int = Field(
+        # 默认有效 30 分钟
+        default=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES,
+
+        # 最短允许 1 分钟
+        ge=1,
+
+        # 最长暂时限制为一天
+        le=1440,
+    )
 
 # 创建全局配置对象
 # 程序其他文件以后统一从这个对象读取配置

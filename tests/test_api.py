@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 
 import ticketpilot.api as api
 
+import ticketpilot.auth as auth
+
 # 导入 pytest，用于使用参数化测试
 import pytest
 
@@ -10,7 +12,10 @@ import ticketpilot.database as database
 from ticketpilot.api import app
 
 # 导入 ORM 工单，用于模拟数据库 Repository 的返回结果
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.db_models import (
+    TicketRecord,
+    UserRecord,
+)
 
 # 导入日期时间类型和 UTC 时区
 from datetime import (
@@ -31,6 +36,54 @@ TEST_TIMESTAMP = datetime(
 )
 
 client = TestClient(app)
+
+# 让这个文件中的测试默认以登录用户身份执行
+@pytest.fixture(
+    # 自动应用到本文件的每一个测试
+    autouse=True,
+)
+def provide_authenticated_user(
+    # monkeypatch 会在每个测试结束后自动恢复修改
+    monkeypatch,
+) -> None:
+    # 模拟认证成功后返回的当前用户
+    def fake_get_current_user() -> UserRecord:
+        # 每次调用都返回一个启用中的测试用户
+        return UserRecord(
+            # 测试用户 ID
+            id="authenticated-test-user",
+
+            # 测试用户邮箱
+            email="authenticated@example.com",
+
+            # 测试用户显示名称
+            display_name="已登录测试用户",
+
+            # 模拟密码哈希
+            password_hash="stored-password-hash",
+
+            # 普通客服角色
+            role="agent",
+
+            # 账号处于启用状态
+            is_active=True,
+
+            # 使用已有的固定测试时间
+            created_at=TEST_TIMESTAMP,
+        )
+
+    # 告诉 FastAPI：
+    # 测试中不要执行真实的 JWT 验证和用户查询
+    monkeypatch.setitem(
+        # FastAPI 保存依赖替换规则的字典
+        app.dependency_overrides,
+
+        # 原来的认证依赖
+        auth.get_current_user,
+
+        # 测试使用的替代函数
+        fake_get_current_user,
+    )
 
 
 # 验证健康检查接口返回 200 和固定 JSON

@@ -1,5 +1,9 @@
 # 导入 Annotated，用于组合类型和 FastAPI 依赖信息
+import uuid
 from typing import Annotated
+
+# 让 FastAPI 验证 JWT，并提供当前登录用户
+from  ticketpilot.auth import CurrentUser
 
 # 导入 UUID 生成函数，用于创建工单编号
 from uuid import uuid4
@@ -24,18 +28,49 @@ from sqlalchemy.orm import Session
 # 导入 Repository，负责数据库 CRUD
 from ticketpilot import repository as ticket_repository
 
+# 导入用户 Repository
+from ticketpilot import user_repository
+
 # 导入每个请求使用的 Session 依赖
 from ticketpilot.database import get_session
 
+# 导入认证需要的安全函数
+from ticketpilot.security import (
+    # 登录成功后生成 JWT
+    create_access_token,
+
+    # 注册时生成密码哈希
+    hash_password,
+
+    # 登录时验证密码
+    verify_password,
+)
+
+
 # 导入数据库工单 ORM 模型
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.db_models import (
+    TicketRecord,
+    UserRecord,
+)
 
 # 导入 API 请求和响应模型
 from ticketpilot.schemas import (
+    # 登录成功的 JWT 响应
+    AccessTokenResponse,
+
     TicketAssigneeUpdateRequest,
     TicketCreateRequest,
     TicketResponse,
     TicketStatusUpdateRequest,
+
+    # 注册请求
+    UserCreateRequest,
+
+    # 登录请求
+    UserLoginRequest,
+
+    # 用户信息响应
+    UserResponse,
 )
 
 
@@ -99,6 +134,32 @@ def to_ticket_response(
         updated_at=ticket.updated_at,
     )
 
+# 将用户 ORM 对象转换成安全的 API 响应
+def to_user_response(
+    # 接收数据库中的用户 ORM 对象
+    user: UserRecord,
+) -> UserResponse:
+    # 创建 Pydantic 用户响应
+    return UserResponse(
+        # 返回用户 ID
+        id=user.id,
+
+        # 返回登录邮箱
+        email=user.email,
+
+        # 返回显示名称
+        display_name=user.display_name,
+
+        # 返回当前角色
+        role=user.role,
+
+        # 返回账号启用状态
+        is_active=user.is_active,
+
+        # 返回账号创建时间
+        created_at=user.created_at,
+    )
+
 
 # 返回服务当前的基础健康状态
 @app.get("/health", tags=["health"])
@@ -107,6 +168,218 @@ def health_check() -> dict[str, str]:
         "status": "ok",
         "service": "TicketPilot"
     }
+
+# 注册一名新的普通用户
+@app.post(
+    # 定义注册接口地址
+    "/v1/auth/register",
+
+    # 声明成功响应使用 UserResponse
+    response_model=UserResponse,
+
+    # 成功创建用户返回 HTTP 201
+    status_code=status.HTTP_201_CREATED,
+
+    # 在 Swagger 文档中归入 auth 分组
+    tags=["auth"],
+)
+def register_user(
+    # 接收并验证客户端提交的注册数据
+    request: UserCreateRequest,
+
+    # 获取本次请求独享的数据库 Session
+    session: DatabaseSession,
+) -> UserResponse:
+    # 从 SecretStr 中取得用户输入的真实密码
+    plain_password = (
+        request.password.get_secret_value()
+    )
+
+    # 使用 Argon2 生成密码哈希
+    password_hash = hash_password(
+        plain_password
+    )
+
+    # 构造准备写入数据库的用户 ORM 对象
+    user_record = UserRecord(
+        # 生成用户唯一 UUID
+        id=str(uuid4()),
+
+        # EmailStr 转换成普通字符串
+        # Repository 还会统一转换成小写
+        email=str(request.email),
+
+        # 保存已经清理过空格的显示名称
+        display_name=request.display_name,
+
+        # 数据库只保存密码哈希
+        password_hash=password_hash,
+    )
+
+    # 捕获用户数据库操作异常
+    try:
+        # 通过 Repository 保存用户
+        created_user = user_repository.create_user(
+            session,
+            user_record,
+        )
+
+    # 捕获邮箱唯一约束冲突
+    except user_repository.UserAlreadyExistsError as error:
+        # 转换成 HTTP 409 Conflict
+        raise HTTPException(
+            # 表示请求与当前数据状态冲突
+            status_code=status.HTTP_409_CONFLICT,
+
+            # 返回客户端可以理解的错误
+            detail="用户邮箱已存在",
+        ) from error
+
+    # 捕获其他数据库错误
+    except RuntimeError as error:
+        # 转换成统一的 HTTP 500
+        raise HTTPException(
+            # 设置服务器内部错误状态码
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+            # 不向客户端泄漏数据库错误细节
+            detail="用户服务暂时不可用",
+        ) from error
+
+    # 返回不包含密码哈希的安全响应
+    return to_user_response(
+        created_user
+    )
+
+# 使用邮箱和密码登录
+@app.post(
+    # 定义登录接口地址
+    "/v1/auth/login",
+
+    # 登录成功返回 JWT 响应模型
+    response_model=AccessTokenResponse,
+
+    # 登录接口归入 Swagger 的 auth 分组
+    tags=["auth"],
+)
+
+def login_user(
+    # 接收经过 Pydantic 验证的登录数据
+    request: UserLoginRequest,
+
+    # 获取本次请求独享的数据库 Session
+    session: DatabaseSession,
+) -> AccessTokenResponse:
+    # 尝试从数据库查询用户
+    try:
+        # 根据邮箱查找用户
+        # Repository 会自动把邮箱转换成小写
+        user = user_repository.get_user_by_email(
+            session,
+            str(request.email),
+        )
+
+    # 捕获 Repository 转换后的数据库异常
+    except RuntimeError as error:
+        # 向客户端返回统一的服务器错误
+        raise HTTPException(
+            # 表示服务器内部出现问题
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+
+            # 不泄露数据库内部错误
+            detail="用户服务暂时不可用",
+        ) from error
+
+    # 如果数据库中没有这个邮箱
+    if user is None:
+        # 返回未通过身份认证
+        raise HTTPException(
+            # 401 表示身份认证失败
+            status_code=status.HTTP_401_UNAUTHORIZED,
+
+            # 不明确告诉别人到底是邮箱还是密码错误
+            detail="邮箱或密码错误",
+
+            # 告诉客户端本系统使用 Bearer Token
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    # 从 SecretStr 中取得用户输入的真实密码
+    plain_password = (
+        request.password.get_secret_value()
+    )
+
+    # 验证明文密码是否匹配数据库密码哈希
+    password_is_valid = verify_password(
+        plain_password,
+        user.password_hash,
+    )
+
+    # 如果密码验证失败
+    if not password_is_valid:
+        # 与用户不存在返回完全相同的信息
+        raise HTTPException(
+            # 密码错误也是身份认证失败
+            status_code=status.HTTP_401_UNAUTHORIZED,
+
+            # 避免泄露账号是否存在
+            detail="邮箱或密码错误",
+
+            # 声明认证方式
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    # 密码正确后，再检查账号是否处于启用状态
+    if not user.is_active:
+        # 账号存在、密码正确，但不允许使用
+        raise HTTPException(
+            # 403 表示身份已经确认，但没有使用权限
+            status_code=status.HTTP_403_FORBIDDEN,
+
+            # 告诉用户账号目前不可用
+            detail="用户账号已停用",
+        )
+
+    # 使用用户 ID 生成 JWT
+    access_token = create_access_token(
+        user.id
+    )
+
+    # 返回登录令牌
+    return AccessTokenResponse(
+        # 客户端后续请求需要携带这个 JWT
+        access_token=access_token,
+
+        # 标准 Bearer Token 类型
+        token_type="bearer",
+    )
+
+# 查询当前登录用户的信息
+@app.get(
+    # me 表示当前请求的用户自己
+    "/v1/auth/me",
+
+    # 只允许返回 UserResponse 中声明的用户信息
+    response_model=UserResponse,
+
+    # 在接口文档中归入 auth 分组
+    tags=["auth"],
+)
+def get_me(
+    # FastAPI 先执行 get_current_user()
+    # 验证通过后，把查到的 UserRecord 传入这个参数
+    current_user: CurrentUser,
+) -> UserResponse:
+    # 转换成安全响应，不返回密码或密码哈希
+    return to_user_response(
+        current_user,
+    )
 
 # 分页查询数据库中的工单
 @app.get(
@@ -122,6 +395,9 @@ def health_check() -> dict[str, str]:
 def list_tickets(
     # 由 FastAPI 为本次请求注入数据库 Session
     session: DatabaseSession,
+
+    # 必须通过身份认证，才能执行创建工单的代码
+    current_user: CurrentUser,
 
     # 接收 URL 中的 limit 查询参数
     limit: Annotated[
@@ -198,6 +474,9 @@ def get_ticket(
         ticket_id: str,
         # 获取本次请求独享的数据库 Session
         session: DatabaseSession,
+        # 必须通过身份认证，才能执行创建工单的代码
+        current_user: CurrentUser,
+
         # 找到工单时返回 TicketResponse
 ) -> TicketResponse:
     # 捕获 Repository 数据库错误
@@ -251,6 +530,9 @@ def update_ticket_status(
         request: TicketStatusUpdateRequest,
         # 获取本次请求独享的数据库 Session
         session: DatabaseSession,
+        # 必须通过身份认证，才能执行创建工单的代码
+        current_user: CurrentUser,
+
         # 修改成功后返回工单响应
 ) -> TicketResponse:
     # 捕获根据 ID 查询时的数据库错误
@@ -332,6 +614,9 @@ def update_ticket_assignee(
         request: TicketAssigneeUpdateRequest,
         # 获取当前请求独享的数据库 Session
         session: DatabaseSession,
+        # 必须通过身份认证，才能执行创建工单的代码
+        current_user: CurrentUser,
+
         # 修改成功后返回完整工单
 ) -> TicketResponse:
     # 捕获查询工单时可能发生的数据库错误
@@ -409,6 +694,9 @@ def delete_ticket(
         ticket_id: str,
         # 获取本次请求独享的 Session
         session: DatabaseSession,
+        # 必须通过身份认证，才能执行创建工单的代码
+        current_user: CurrentUser,
+
         # 删除成功不返回对象
 ) -> None:
     # 捕获主键查询错误
@@ -482,6 +770,8 @@ def create_ticket(
         request: TicketCreateRequest,
         # 获取本次请求独享的数据库 Session
         session: DatabaseSession,
+        # 自动验证 JWT，并取得当前登录用户
+        current_user: CurrentUser,
         # 创建成功后返回工单响应
 ) -> TicketResponse:
     # 把经过验证的请求 DTO 转换成 ORM 数据库对象

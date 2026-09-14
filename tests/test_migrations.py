@@ -340,3 +340,139 @@ def test_timestamp_migration_backfills_existing_ticket(
     finally:
         # 无论测试通过还是失败，都释放数据库连接
         test_engine.dispose()
+
+# 验证用户表迁移会创建正确的表结构
+def test_users_migration_creates_expected_table(
+    # pytest 提供本测试独享的临时目录
+    tmp_path,
+) -> None:
+    # 创建本次测试使用的临时 SQLite 文件
+    database_file = (
+        tmp_path / "users-migration-test.db"
+    )
+
+    # 生成临时数据库连接地址
+    database_url = (
+        f"sqlite:///{database_file.as_posix()}"
+    )
+
+    # 读取项目的 Alembic 配置文件
+    alembic_config = Config(
+        str(PROJECT_ROOT / "alembic.ini")
+    )
+
+    # 让 Alembic 使用本次测试的临时数据库
+    alembic_config.attributes["database_url"] = (
+        database_url
+    )
+
+    # 创建用于检查数据库结构的 Engine
+    test_engine = create_engine(
+        database_url
+    )
+
+    try:
+        # 先升级到还没有 users 表的旧版本
+        command.upgrade(
+            alembic_config,
+            "1546b4e6b921",
+        )
+
+        # 验证旧版本中还没有 users 表
+        assert "users" not in inspect(
+            test_engine
+        ).get_table_names()
+
+        # 执行创建 users 表的新迁移
+        command.upgrade(
+            alembic_config,
+            "d730dcf4c7e6",
+        )
+
+        # 创建数据库结构检查器
+        database_inspector = inspect(
+            test_engine
+        )
+
+        # 读取升级后的全部表名
+        table_names = (
+            database_inspector.get_table_names()
+        )
+
+        # 原来的 tickets 表必须继续存在
+        assert "tickets" in table_names
+
+        # 新的 users 表必须已经创建
+        assert "users" in table_names
+
+        # 读取 users 表的全部字段
+        columns = {
+            column["name"]: column
+            for column in database_inspector.get_columns(
+                "users"
+            )
+        }
+
+        # 验证用户表拥有预期的全部字段
+        assert set(columns) == {
+            "id",
+            "email",
+            "display_name",
+            "password_hash",
+            "role",
+            "is_active",
+            "created_at",
+        }
+
+        # 所有用户字段都不允许保存 NULL
+        for column in columns.values():
+            assert column["nullable"] is False
+
+        # role 必须有数据库默认值
+        assert columns["role"]["default"] is not None
+
+        # is_active 必须有数据库默认值
+        assert (
+            columns["is_active"]["default"]
+            is not None
+        )
+
+        # created_at 必须有数据库默认值
+        assert (
+            columns["created_at"]["default"]
+            is not None
+        )
+
+        # 读取 users 表的唯一约束
+        unique_constraints = (
+            database_inspector.get_unique_constraints(
+                "users"
+            )
+        )
+
+        # 验证 email 字段具有唯一约束
+        assert any(
+            constraint["column_names"] == ["email"]
+            for constraint in unique_constraints
+        )
+
+        # 回滚到没有 users 表的旧版本
+        command.downgrade(
+            alembic_config,
+            "1546b4e6b921",
+        )
+
+        # 重新读取回滚后的表名
+        tables_after_downgrade = inspect(
+            test_engine
+        ).get_table_names()
+
+        # users 表应该已经删除
+        assert "users" not in tables_after_downgrade
+
+        # 回滚用户表不能删除原来的 tickets 表
+        assert "tickets" in tables_after_downgrade
+
+    finally:
+        # 无论测试成功或失败都释放数据库连接
+        test_engine.dispose()
