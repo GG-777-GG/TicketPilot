@@ -1134,6 +1134,91 @@ def test_get_me_returns_403_for_inactive_user(
         "detail": "用户账号已停用",
     }
 
+# 测试普通客服不能通过 API 删除工单
+def test_delete_ticket_returns_403_for_agent(
+    # monkeypatch 用来替换真实数据库函数
+    monkeypatch,
+) -> None:
+    # 创建一个已经登录的普通客服用户
+    agent_user = UserRecord(
+        # 模拟用户 ID
+        id="agent-user-id",
+
+        # 模拟用户邮箱
+        email="agent@example.com",
+
+        # 模拟用户显示名称
+        display_name="普通客服",
+
+        # 本测试不验证密码
+        password_hash="stored-password-hash",
+
+        # 关键条件：用户角色是 agent
+        role="agent",
+
+        # 用户账号处于启用状态
+        is_active=True,
+
+        # 使用测试文件中已有的固定时间
+        created_at=TEST_USER_CREATED_AT,
+    )
+
+    # 模拟根据 JWT 中的用户 ID 查询当前用户
+    def fake_get_user_by_id(
+        session,
+        user_id: str,
+    ) -> UserRecord:
+        # 确认 JWT 中保存的是测试用户 ID
+        assert user_id == agent_user.id
+
+        # 返回当前普通客服用户
+        return agent_user
+
+    # 定义一个绝对不应该执行的工单查询函数
+    def should_not_get_ticket_by_id(
+        session,
+        ticket_id: str,
+    ) -> None:
+        # 如果执行到这里，说明权限检查没有提前拦截请求
+        raise AssertionError(
+            "agent 没有删除权限，不应该查询工单",
+        )
+
+    # 替换真实的用户数据库查询
+    monkeypatch.setattr(
+        api.user_repository,
+        "get_user_by_id",
+        fake_get_user_by_id,
+    )
+
+    # 替换工单查询函数，确认删除逻辑不会执行
+    monkeypatch.setattr(
+        api.ticket_repository,
+        "get_ticket_by_id",
+        should_not_get_ticket_by_id,
+    )
+
+    # 为普通客服用户生成一个真实有效的 JWT
+    access_token = create_access_token(
+        agent_user.id,
+    )
+
+    # 携带 JWT 请求删除工单
+    response = client.delete(
+        "/v1/tickets/test-ticket-id",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    # 用户已经登录，但角色权限不足
+    assert response.status_code == 403
+
+    # 验证统一的权限错误提示
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
 # 使用同一套断言检查所有工单接口都要求登录
 @pytest.mark.parametrize(
     # 每组数据包含请求方法、接口地址和请求体

@@ -492,3 +492,117 @@ def test_get_current_user_returns_500_when_repository_fails(
 
     # 对外只提供统一提示，不包含数据库内部错误
     assert error.detail == "用户服务暂时不可用"
+
+# 测试普通客服不能通过主管或管理员权限检查
+def test_require_roles_rejects_user_without_allowed_role() -> None:
+    # 创建一个普通客服用户
+    current_user = UserRecord(
+        # 模拟用户 ID
+        id="agent-user-id",
+
+        # 模拟登录邮箱
+        email="agent@example.com",
+
+        # 模拟显示名称
+        display_name="普通客服",
+
+        # 本测试不验证密码，所以使用模拟哈希
+        password_hash="test-password-hash",
+
+        # 当前用户是普通客服
+        role="agent",
+
+        # 账号处于启用状态
+        is_active=True,
+
+        # 模拟用户创建时间
+        created_at=datetime(
+            2026,
+            1,
+            1,
+            tzinfo=UTC,
+        ),
+    )
+
+    # 创建只允许 supervisor 和 admin 通过的检查函数
+    permission_checker = auth.require_roles(
+        "supervisor",
+        "admin",
+    )
+
+    # 预期普通客服会被权限检查拒绝
+    with pytest.raises(
+        HTTPException,
+    ) as exception_info:
+        # 这里才是真正执行角色检查
+        permission_checker(
+            current_user,
+        )
+
+    # 取得实际抛出的 HTTPException
+    error = exception_info.value
+
+    # 已经登录但权限不足，所以应该返回 403
+    assert error.status_code == 403
+
+    # 检查返回的错误信息
+    assert error.detail == "权限不足"
+
+# 使用两个不同角色重复执行下面的测试
+@pytest.mark.parametrize(
+    # 这个名字必须与测试函数参数 allowed_role 一致
+    "allowed_role",
+
+    # pytest 会依次把这两个值传入测试函数
+    [
+        "supervisor",
+        "admin",
+    ],
+)
+# 测试主管和管理员都能通过权限检查
+def test_require_roles_accepts_allowed_role(
+    # pytest 自动传入当前正在测试的角色
+    allowed_role: str,
+) -> None:
+    # 创建具有允许角色的模拟用户
+    current_user = UserRecord(
+        # 模拟用户 ID
+        id=f"{allowed_role}-user-id",
+
+        # 模拟用户邮箱
+        email=f"{allowed_role}@example.com",
+
+        # 模拟显示名称
+        display_name="有权限的用户",
+
+        # 本测试不验证密码
+        password_hash="test-password-hash",
+
+        # 第一次是 supervisor，第二次是 admin
+        role=allowed_role,
+
+        # 账号处于启用状态
+        is_active=True,
+
+        # 模拟用户创建时间
+        created_at=datetime(
+            2026,
+            1,
+            1,
+            tzinfo=UTC,
+        ),
+    )
+
+    # 创建只允许主管和管理员通过的检查函数
+    permission_checker = auth.require_roles(
+        "supervisor",
+        "admin",
+    )
+
+    # 执行角色权限检查
+    returned_user = permission_checker(
+        current_user,
+    )
+
+    # 验证权限函数返回的就是原来的用户对象
+    assert returned_user is current_user

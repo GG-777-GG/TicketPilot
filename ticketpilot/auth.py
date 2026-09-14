@@ -1,7 +1,11 @@
 # Annotated 用来组合类型和 FastAPI 依赖信息
 from typing import Annotated
 
+# Callable 用来标注“一个可以被调用的函数”
+from collections.abc import Callable
 
+# 导入系统允许的用户角色类型
+from ticketpilot.schemas import UserRole
 
 # 导入 FastAPI 的依赖注入和 HTTP 异常工具
 from fastapi import (
@@ -166,4 +170,48 @@ CurrentUser = Annotated[
 
     # FastAPI 自动执行 get_current_user
     Depends(get_current_user),
+]
+
+# 创建一个可以限制用户角色的依赖
+def require_roles(
+    # 接收允许访问接口的角色
+    *allowed_roles: UserRole,
+) -> Callable[[UserRecord], UserRecord]:
+
+    # 这个内部函数会在每次请求时执行
+    def check_role(
+        # 先验证 JWT，并取得当前登录用户
+        current_user: CurrentUser,
+    ) -> UserRecord:
+
+        # 判断当前用户的角色是否在允许列表中
+        if current_user.role not in allowed_roles:
+            # 用户已经登录，但没有足够权限
+            raise HTTPException(
+                # 403 表示身份已确认，但是禁止访问
+                status_code=status.HTTP_403_FORBIDDEN,
+
+                # 返回给客户端的错误信息
+                detail="权限不足",
+            )
+
+        # 权限检查通过，返回当前用户
+        return current_user
+
+    # 返回真正供 FastAPI 执行的权限检查函数
+    return check_role
+
+# 定义“主管或管理员用户”的依赖类型
+SupervisorOrAdminUser = Annotated[
+    # 路由最终接收到的实际对象是 UserRecord
+    UserRecord,
+
+    # FastAPI 在进入路由前执行角色权限检查
+    Depends(
+        # 创建只允许主管和管理员通过的检查函数
+        require_roles(
+            "supervisor",
+            "admin",
+        )
+    ),
 ]

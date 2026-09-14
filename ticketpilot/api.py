@@ -3,7 +3,13 @@ import uuid
 from typing import Annotated
 
 # 让 FastAPI 验证 JWT，并提供当前登录用户
-from  ticketpilot.auth import CurrentUser
+from  ticketpilot.auth import (
+    # 只验证用户是否已经登录
+    CurrentUser,
+
+    # 验证用户已登录，并且是主管或管理员
+    SupervisorOrAdminUser,
+)
 
 # 导入 UUID 生成函数，用于创建工单编号
 from uuid import uuid4
@@ -694,8 +700,8 @@ def delete_ticket(
         ticket_id: str,
         # 获取本次请求独享的 Session
         session: DatabaseSession,
-        # 必须通过身份认证，才能执行创建工单的代码
-        current_user: CurrentUser,
+        # FastAPI 会在进入函数前验证当前用户是主管或管理员
+        current_user: SupervisorOrAdminUser,
 
         # 删除成功不返回对象
 ) -> None:

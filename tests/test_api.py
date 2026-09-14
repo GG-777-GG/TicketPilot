@@ -62,8 +62,8 @@ def provide_authenticated_user(
             # 模拟密码哈希
             password_hash="stored-password-hash",
 
-            # 普通客服角色
-            role="agent",
+            # 使用主管角色，让普通 CRUD 测试可以进入删除接口
+            role="supervisor",
 
             # 账号处于启用状态
             is_active=True,
