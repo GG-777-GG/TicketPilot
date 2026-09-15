@@ -1,0 +1,168 @@
+# 导入 pytest，用于 monkeypatch 和异常测试
+import pytest
+
+# 导入 Pydantic 数据验证异常
+from pydantic import ValidationError
+
+# 导入 SQLAlchemy Session 类型
+from sqlalchemy.orm import Session
+
+# 导入需要测试的 Dispatcher 模块
+from ticketpilot import agent_dispatcher
+
+# 导入工具请求、参数和结果模型
+from ticketpilot.agent_schemas import (
+    GetTicketToolArguments,
+    GetTicketToolResult,
+    ToolRequest,
+)
+
+
+# 验证 Dispatcher 会调用正确的工具
+def test_dispatch_tool_calls_get_ticket_details(
+    monkeypatch,
+) -> None:
+    # 保存假工具实际收到的参数
+    received_arguments: list[
+        GetTicketToolArguments
+    ] = []
+
+    # 创建假工具准备返回的结果
+    expected_result = GetTicketToolResult(
+        found=False,
+        message="测试工具已执行",
+        ticket=None,
+    )
+
+    # 定义假的查询工单工具
+    def fake_get_ticket_details(
+        session: Session,
+        arguments: GetTicketToolArguments,
+    ) -> GetTicketToolResult:
+        # 记录 Dispatcher 传入的参数
+        received_arguments.append(
+            arguments,
+        )
+
+        # 返回提前准备好的结果
+        return expected_result
+
+    # 临时替换 Dispatcher 实际使用的查询工具
+    monkeypatch.setattr(
+        agent_dispatcher.agent_tools,
+        "get_ticket_details",
+        fake_get_ticket_details,
+    )
+
+    # 模拟 AI 生成一次工具请求
+    request = ToolRequest(
+        # 故意在工具名称两端添加空格
+        name="  get_ticket_details  ",
+
+        # 参数仍然是未经专属模型验证的字典
+        arguments={
+            "ticket_id": "  ticket-001  ",
+        },
+    )
+
+    # 创建并自动关闭测试 Session
+    with Session() as session:
+        # 让 Dispatcher 分发这次工具请求
+        result = agent_dispatcher.dispatch_tool(
+            session,
+            request,
+        )
+
+    # Dispatcher 应该返回假工具提供的结果
+    assert result == expected_result
+
+    # 假工具应该只被调用一次
+    assert len(received_arguments) == 1
+
+    # 工单 ID 应该经过专属参数模型清理
+    assert (
+        received_arguments[0].ticket_id
+        == "ticket-001"
+    )
+
+
+# 验证参数非法时，Dispatcher 不会执行真正的工具
+def test_dispatch_tool_rejects_invalid_arguments(
+    monkeypatch,
+) -> None:
+    # 保存工具调用记录
+    tool_calls: list[
+        GetTicketToolArguments
+    ] = []
+
+    # 定义一个假的查询工单工具
+    def fake_get_ticket_details(
+        session: Session,
+        arguments: GetTicketToolArguments,
+    ) -> GetTicketToolResult:
+        # 如果执行到了这里，就记录本次调用
+        tool_calls.append(
+            arguments,
+        )
+
+        # 返回一个测试结果
+        return GetTicketToolResult(
+            found=False,
+            message="不应该执行到这里",
+            ticket=None,
+        )
+
+    # 临时替换真正的查询工具
+    monkeypatch.setattr(
+        agent_dispatcher.agent_tools,
+        "get_ticket_details",
+        fake_get_ticket_details,
+    )
+
+    # ToolRequest 只检查外层结构
+    request = ToolRequest(
+        name="get_ticket_details",
+        arguments={
+            # 空格清理后会变成空字符串
+            "ticket_id": "   ",
+        },
+    )
+
+    # 创建并自动关闭测试 Session
+    with Session() as session:
+        # 专属参数模型必须抛出验证异常
+        with pytest.raises(
+            ValidationError,
+        ):
+            # 尝试分发非法工具请求
+            agent_dispatcher.dispatch_tool(
+                session,
+                request,
+            )
+
+    # 参数验证失败，所以工具一次都不能执行
+    assert tool_calls == []
+
+
+# 验证 Dispatcher 会拒绝未知工具
+def test_dispatch_tool_rejects_unknown_tool() -> None:
+    # 模拟 AI 幻想出一个危险的未知工具
+    request = ToolRequest(
+        name="delete_all_database",
+        arguments={},
+    )
+
+    # 创建并自动关闭测试 Session
+    with Session() as session:
+        # Dispatcher 必须抛出 UnknownToolError
+        with pytest.raises(
+            agent_dispatcher.UnknownToolError,
+
+            # 同时检查异常中包含未知工具名称
+            match="delete_all_database",
+        ):
+            # 尝试分发未知工具请求
+            agent_dispatcher.dispatch_tool(
+                session,
+                request,
+            )
