@@ -5,6 +5,9 @@ from pydantic import (
     Field,
 )
 
+# 导入 Literal，用来限制字段只能使用指定字符串
+from typing import Literal
+
 # 复用项目中已经定义好的工单优先级和工单状态类型
 from ticketpilot.schemas import (
     Priority,
@@ -87,3 +90,87 @@ class ToolRequest(BaseModel):
 
     # AI 准备传给工具的原始参数
     arguments: dict[str, object]
+
+
+# 定义模型“直接回答用户”的决定
+class FinalAnswerDecision(BaseModel):
+    # 配置最终回答的验证规则
+    model_config = ConfigDict(
+        # 自动删除回答两端的空格
+        str_strip_whitespace=True,
+
+        # 拒绝没有声明的额外字段
+        extra="forbid",
+    )
+
+    # 固定为 final_answer，用来识别决定类型
+    kind: Literal["final_answer"]
+
+    # 模型准备直接返回给用户的回答
+    answer: str = Field(
+        # 回答不能为空
+        min_length=1,
+
+        # 限制单次回答的最大长度
+        max_length=8000,
+    )
+
+
+# 定义模型“请求调用工具”的决定
+class ToolCallDecision(BaseModel):
+    # 拒绝没有声明的额外字段
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    # 固定为 tool_call，用来识别决定类型
+    kind: Literal["tool_call"]
+
+    # 保存模型准备发出的完整工具请求
+    tool_request: ToolRequest
+
+
+# 模型一次可以返回两种决定中的任意一种
+ModelDecision = (
+    FinalAnswerDecision
+    | ToolCallDecision
+)
+
+# 限制一条消息只能使用规定的角色
+MessageRole = Literal[
+    # 系统提供给模型的规则和身份说明
+    "system",
+
+    # 用户发送的问题
+    "user",
+
+    # AI 生成的回答或者工具请求
+    "assistant",
+
+    # Python 工具执行后返回的结果
+    "tool",
+]
+
+
+# 定义 Agent 对话中的一条消息
+class AgentMessage(BaseModel):
+    # 配置消息的验证规则
+    model_config = ConfigDict(
+        # 自动删除消息两端的空格
+        str_strip_whitespace=True,
+
+        # 拒绝没有声明的额外字段
+        extra="forbid",
+    )
+
+    # 表示这条消息是谁产生的
+    role: MessageRole
+
+    # 保存消息的具体内容
+    content: str = Field(
+        # 消息内容不能为空
+        min_length=1,
+
+        # 防止单条消息无限增大
+        max_length=20_000,
+    )
