@@ -8,13 +8,13 @@ import pytest
 from sqlalchemy.orm import Session
 
 # 导入需要测试的 Agent Loop 模块
-from ticketpilot import agent_loop
+from ticketpilot.agent import loop as agent_loop
 
 # 导入测试使用的 Fake Model
-from ticketpilot.agent_model import FakeAgentModel
+from ticketpilot.agent.model import FakeAgentModel
 
 # 导入测试需要的数据模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     FinalAnswerDecision,
     GetTicketToolResult,
     TicketToolData,

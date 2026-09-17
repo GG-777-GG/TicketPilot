@@ -1,5 +1,5 @@
-import ticketpilot.cli as cli
-from ticketpilot.models import Ticket
+import ticketpilot.legacy_cli.cli as cli
+from ticketpilot.legacy_cli.models import Ticket
 
 
 # 创建一张供命令行功能测试使用的工单

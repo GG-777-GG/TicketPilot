@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 
 # 导入现有的工单 Repository 模块
 # 工具不自己写 SQL，而是复用 Repository
-from ticketpilot import repository
+from ticketpilot.tickets import repository
 
 # 导入工具的参数模型和结果模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     GetTicketToolArguments,
     GetTicketToolResult,
     TicketToolData,

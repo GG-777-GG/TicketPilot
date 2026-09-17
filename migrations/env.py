@@ -5,11 +5,12 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# 导入 ORM 模型，让 TicketRecord 在 Base.metadata 中完成登记
-import ticketpilot.db_models
+# 显式导入全部 ORM 模型，让两张表登记到同一个 Base.metadata。
+import ticketpilot.identity.models
+import ticketpilot.tickets.models
 
 # 导入项目统一使用的数据库地址和 ORM 元数据
-from ticketpilot.database import (
+from ticketpilot.core.database import (
     Base,
     DATABASE_URL,
 )

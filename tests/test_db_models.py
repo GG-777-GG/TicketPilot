@@ -4,12 +4,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
-from ticketpilot.database import Base
+from ticketpilot.core.database import Base
 # 导入工单和用户 ORM 模型
-from ticketpilot.db_models import (
-    TicketRecord,
-    UserRecord,
-)
+from ticketpilot.identity.models import UserRecord
+from ticketpilot.tickets.models import TicketRecord
 
 
 # 验证 ORM 模型可以保存并查询工单

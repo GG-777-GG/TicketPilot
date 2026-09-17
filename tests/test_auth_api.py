@@ -5,19 +5,22 @@ from datetime import UTC, datetime
 import pytest
 
 # 为测试用户生成真实的 JWT
-from ticketpilot.security import create_access_token
+from ticketpilot.identity.security import create_access_token
 
 # TestClient 用来模拟客户端发送 HTTP 请求
 from fastapi.testclient import TestClient
 
-# 导入整个 api 模块，方便 monkeypatch 替换里面的函数
-import ticketpilot.api as api
+# 导入身份路由模块；测试应替换“函数实际查找名字”的位置。
+import ticketpilot.identity.router as api
+
+# 删除权限测试还需要替换工单路由使用的 Repository。
+import ticketpilot.tickets.router as ticket_api
 
 # 导入 FastAPI 应用
-from ticketpilot.api import app
+from ticketpilot.app import app
 
 # 导入用户 ORM 模型，给测试数据提供类型
-from ticketpilot.db_models import UserRecord
+from ticketpilot.identity.models import UserRecord
 
 
 # 固定用户创建时间，避免测试结果每次运行都不同
@@ -1193,7 +1196,7 @@ def test_delete_ticket_returns_403_for_agent(
 
     # 替换工单查询函数，确认删除逻辑不会执行
     monkeypatch.setattr(
-        api.ticket_repository,
+        ticket_api.ticket_repository,
         "get_ticket_by_id",
         should_not_get_ticket_by_id,
     )

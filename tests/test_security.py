@@ -9,10 +9,10 @@ import jwt
 import pytest
 
 # 导入当前应用的 JWT 配置
-from ticketpilot.config import settings
+from ticketpilot.core.config import settings
 
 # 导入需要测试的密码安全函数
-from ticketpilot.security import (
+from ticketpilot.identity.security import (
     hash_password,
     verify_password,
     decode_access_token,

@@ -1,7 +1,7 @@
 import pytest
 
-import ticketpilot.storage as storage
-from ticketpilot.models import Ticket
+import ticketpilot.legacy_cli.storage as storage
+from ticketpilot.legacy_cli.models import Ticket
 
 
 # 创建一张供存储测试使用的工单

@@ -18,10 +18,9 @@ from pydantic_settings import (
 )
 
 
-# __file__ 是当前 config.py 文件的位置
-# 第一个 parent 得到 ticketpilot 目录
-# 第二个 parent 得到项目根目录 GG-first-agent
-BASE_DIR = Path(__file__).resolve().parent.parent
+# __file__ 现在位于 ticketpilot/core/config.py。
+# parents[0] 是 core，parents[1] 是 ticketpilot，parents[2] 才是项目根目录。
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 # 默认的 SQLite 数据库文件位置：
 # D:\GG-first-agent\data\ticketpilot.db
@@ -44,6 +43,17 @@ DEVELOPMENT_JWT_SECRET_KEY = SecretStr(
 
 # JWT 默认有效 30 分钟
 DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Ollama 本地服务的默认访问地址
+DEFAULT_OLLAMA_BASE_URL = (
+    "http://127.0.0.1:11434"
+)
+
+# TicketPilot 默认使用的本地模型
+DEFAULT_OLLAMA_MODEL = "qwen3:1.7b"
+
+# 单次模型请求最多等待 120 秒
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 
 # 集中定义 TicketPilot 的所有环境配置
 # 类似 Spring Boot 中的 @ConfigurationProperties
@@ -87,6 +97,35 @@ class Settings(BaseSettings):
 
         # 最长暂时限制为一天
         le=1440,
+    )
+    # TicketPilot 应该连接的 Ollama 服务地址
+    ollama_base_url: str = Field(
+        # 没有环境变量时连接本机 Ollama
+        default=DEFAULT_OLLAMA_BASE_URL,
+
+        # 地址不能为空
+        min_length=1,
+    )
+
+    # TicketPilot 调用的 Ollama 模型名称
+    ollama_model: str = Field(
+        # 默认使用已经下载的 qwen3:1.7b
+        default=DEFAULT_OLLAMA_MODEL,
+
+        # 模型名称不能为空
+        min_length=1,
+    )
+
+    # 单次 Ollama 请求允许等待的秒数
+    ollama_timeout_seconds: float = Field(
+        # 默认最多等待两分钟
+        default=DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+
+        # 至少允许等待一秒
+        ge=1,
+
+        # 最长暂时限制为十分钟
+        le=600,
     )
 
 # 创建全局配置对象

@@ -1,4 +1,4 @@
-from ticketpilot.models import Ticket
+from ticketpilot.legacy_cli.models import Ticket
 
 
 # 创建一张供自动测试重复使用的工单

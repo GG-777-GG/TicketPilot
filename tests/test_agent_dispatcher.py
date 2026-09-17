@@ -8,10 +8,10 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 # 导入需要测试的 Dispatcher 模块
-from ticketpilot import agent_dispatcher
+from ticketpilot.agent import dispatcher as agent_dispatcher
 
 # 导入工具请求、参数和结果模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     GetTicketToolArguments,
     GetTicketToolResult,
     ToolRequest,

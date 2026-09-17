@@ -1,12 +1,12 @@
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from ticketpilot.database import (
+from ticketpilot.core.database import (
     build_engine,
     build_session_factory,
     create_tables,
 )
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.tickets.models import TicketRecord
 
 
 # 验证数据库配置可以创建文件、表和可用的 Session
@@ -85,7 +85,7 @@ def test_get_session_closes_session(
         return fake_session
 
     # 临时导入 database 模块，以便替换模块中的 SessionLocal
-    import ticketpilot.database as database
+    import ticketpilot.core.database as database
 
     # 把真实 SessionLocal 临时替换成假工厂
     monkeypatch.setattr(

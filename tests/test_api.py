@@ -1,21 +1,19 @@
 from fastapi.testclient import TestClient
 
-import ticketpilot.api as api
+import ticketpilot.tickets.router as api
 
-import ticketpilot.auth as auth
+import ticketpilot.identity.dependencies as auth
 
 # 导入 pytest，用于使用参数化测试
 import pytest
 
 # 导入数据库模块，用于构造测试专用数据库
-import ticketpilot.database as database
-from ticketpilot.api import app
+import ticketpilot.core.database as database
+from ticketpilot.app import app
 
 # 导入 ORM 工单，用于模拟数据库 Repository 的返回结果
-from ticketpilot.db_models import (
-    TicketRecord,
-    UserRecord,
-)
+from ticketpilot.identity.models import UserRecord
+from ticketpilot.tickets.models import TicketRecord
 
 # 导入日期时间类型和 UTC 时区
 from datetime import (
@@ -1218,7 +1216,7 @@ def test_api_uses_database_repository(
     # 告诉 FastAPI 用测试依赖替代正式 get_session
     app.dependency_overrides[
         # 原来的依赖函数
-        api.get_session
+        database.get_session
         # 替换成测试专用依赖函数
     ] = override_get_session
 

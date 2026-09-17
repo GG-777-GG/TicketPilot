@@ -12,7 +12,7 @@ from sqlalchemy.orm import (
 )
 
 # 导入默认数据库文件路径和统一配置对象
-from ticketpilot.config import (
+from ticketpilot.core.config import (
     DEFAULT_DATABASE_FILE,
     settings,
 )
@@ -68,7 +68,9 @@ SessionLocal = build_session_factory(engine)
 def create_tables(
         database_engine: Engine = engine,
 ) -> None:
-    import ticketpilot.db_models
+    # 导入两个业务模块的 ORM 模型，把它们登记到同一个 Base.metadata。
+    import ticketpilot.identity.models
+    import ticketpilot.tickets.models
 
     Base.metadata.create_all(
         bind=database_engine,

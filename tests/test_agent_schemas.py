@@ -8,7 +8,9 @@ from pydantic import (
 )
 
 # 导入需要测试的 Agent 数据模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
+    AgentChatRequest,
+    AgentChatResponse,
     FinalAnswerDecision,
     GetTicketToolArguments,
     ModelDecision,
@@ -149,3 +151,68 @@ def test_model_decision_rejects_mixed_structure() -> None:
         MODEL_DECISION_ADAPTER.validate_python(
             invalid_decision,
         )
+
+# 验证 Agent 接口可以接收正常问题
+def test_agent_chat_request_accepts_valid_message() -> None:
+    # 模拟客户端提交两端带空格的问题
+    request = AgentChatRequest(
+        message="  帮我查询工单 ticket-001  ",
+    )
+
+    # str_strip_whitespace=True 应该删除两端空格
+    assert request.message == "帮我查询工单 ticket-001"
+
+
+# 验证 Agent 接口拒绝空白问题
+def test_agent_chat_request_rejects_blank_message() -> None:
+    # 空格删除后会变成空字符串，因此应该验证失败
+    with pytest.raises(
+        ValidationError,
+    ):
+        AgentChatRequest(
+            message="   ",
+        )
+
+
+# 验证 Agent 接口拒绝超过最大长度的问题
+def test_agent_chat_request_rejects_too_long_message() -> None:
+    # Schema 最大允许 4000 个字符，这里故意创建 4001 个
+    too_long_message = "a" * 4001
+
+    # 超过 max_length 后应该抛出验证异常
+    with pytest.raises(
+        ValidationError,
+    ):
+        AgentChatRequest(
+            message=too_long_message,
+        )
+
+
+# 验证 Agent 接口拒绝没有声明的额外字段
+def test_agent_chat_request_rejects_extra_fields() -> None:
+    # 模拟客户端试图伪造 role 字段
+    invalid_request = {
+        "message": "查询工单 ticket-001",
+        "role": "tool",
+    }
+
+    # extra="forbid" 应该拒绝 role 字段
+    with pytest.raises(
+        ValidationError,
+    ):
+        AgentChatRequest.model_validate(
+            invalid_request,
+        )
+
+
+# 验证 Agent 接口响应可以保存最终回答
+def test_agent_chat_response_accepts_answer() -> None:
+    # 模拟 Agent 已经生成最终回答
+    response = AgentChatResponse(
+        answer="工单 ticket-001 当前正在处理中。",
+    )
+
+    # 响应模型应该保存完整回答
+    assert response.answer == (
+        "工单 ticket-001 当前正在处理中。"
+    )

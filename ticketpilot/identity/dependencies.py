@@ -5,7 +5,7 @@ from typing import Annotated
 from collections.abc import Callable
 
 # 导入系统允许的用户角色类型
-from ticketpilot.schemas import UserRole
+from ticketpilot.identity.types import UserRole
 
 # 导入 FastAPI 的依赖注入和 HTTP 异常工具
 from fastapi import (
@@ -28,20 +28,17 @@ from fastapi.security import (
     HTTPBearer,
 )
 
-# 导入数据库 Session 类型
-from sqlalchemy.orm import Session
-
 # 导入用户 Repository
-from ticketpilot import user_repository
+from ticketpilot.identity import repository as user_repository
 
-# 导入数据库 Session 依赖
-from ticketpilot.database import get_session
+# 导入多个路由共用的数据库 Session 依赖类型
+from ticketpilot.core.dependencies import DatabaseSession
 
 # 导入用户 ORM 模型
-from ticketpilot.db_models import UserRecord
+from ticketpilot.identity.models import UserRecord
 
 # 导入 JWT 验证函数和异常
-from ticketpilot.security import (
+from ticketpilot.identity.security import (
     InvalidAccessTokenError,
     decode_access_token,
 )
@@ -62,16 +59,6 @@ BearerCredentials = Annotated[
 
     # FastAPI 自动调用 bearer_scheme
     Depends(bearer_scheme),
-]
-
-
-# 定义数据库 Session 依赖类型
-DatabaseSession = Annotated[
-    # 实际得到 SQLAlchemy Session
-    Session,
-
-    # FastAPI 自动调用 get_session
-    Depends(get_session),
 ]
 
 

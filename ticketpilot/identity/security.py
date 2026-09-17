@@ -8,7 +8,7 @@ import jwt
 # InvalidTokenError 表示 JWT 无效、过期或签名错误
 from jwt.exceptions import InvalidTokenError
 
-from ticketpilot.config import settings
+from ticketpilot.core.config import settings
 
 # 使用 pwdlib 当前推荐的安全算法
 # 当前会使用 Argon2 算法

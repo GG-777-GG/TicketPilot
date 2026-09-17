@@ -9,7 +9,7 @@ from pydantic import (
 from typing import Literal
 
 # 复用项目中已经定义好的工单优先级和工单状态类型
-from ticketpilot.schemas import (
+from ticketpilot.tickets.types import (
     Priority,
     TicketStatus,
 )
@@ -173,4 +173,36 @@ class AgentMessage(BaseModel):
 
         # 防止单条消息无限增大
         max_length=20_000,
+    )
+
+# 定义 Agent 对话接口接收的请求数据
+class AgentChatRequest(BaseModel):
+    # 设置请求数据的验证规则
+    model_config = ConfigDict(
+        # 自动删除用户问题两端的空格
+        str_strip_whitespace=True,
+
+        # 拒绝没有声明的额外字段
+        extra="forbid",
+    )
+
+    # 保存用户本次提出的问题
+    message: str = Field(
+        # 删除空格后至少包含一个字符
+        min_length=1,
+
+        # 防止客户端一次提交过大的问题
+        max_length=4000,
+    )
+
+
+# 定义 Agent 对话接口返回的数据
+class AgentChatResponse(BaseModel):
+    # 保存 Agent 最终生成的回答
+    answer: str = Field(
+        # Agent 回答不能为空
+        min_length=1,
+
+        # 与 FinalAnswerDecision 的最大长度保持一致
+        max_length=8000,
     )

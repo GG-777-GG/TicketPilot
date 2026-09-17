@@ -2,7 +2,7 @@
 from typing import Protocol
 
 # 导入模型接收的消息和返回的决定类型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     AgentMessage,
     ModelDecision,
 )

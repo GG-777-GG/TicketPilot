@@ -16,10 +16,10 @@ from fastapi.security import (
 from sqlalchemy.orm import Session
 
 # 导入整个 auth 模块，方便 monkeypatch
-import ticketpilot.auth as auth
+import ticketpilot.identity.dependencies as auth
 
 # 导入用户 ORM 模型
-from ticketpilot.db_models import UserRecord
+from ticketpilot.identity.models import UserRecord
 
 
 # 测试有效令牌能够取得当前用户

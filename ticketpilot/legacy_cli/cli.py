@@ -1,13 +1,13 @@
 from uuid import uuid4
 
-from ticketpilot.models import (
+from ticketpilot.legacy_cli.models import (
     ALLOWED_CHANNELS,
     ALLOWED_PRIORITIES,
     ALLOWED_STATUSES,
     PROJECT_NAME,
     Ticket,
 )
-from ticketpilot.storage import load_tickets, save_tickets
+from ticketpilot.legacy_cli.storage import load_tickets, save_tickets
 
 
 # 打印系统标题

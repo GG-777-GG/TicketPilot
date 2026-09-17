@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 # 导入默认数据库地址和配置类
-from ticketpilot.config import (
+from ticketpilot.core.config import (
     DEFAULT_DATABASE_URL,
     Settings,
 )

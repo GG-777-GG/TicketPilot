@@ -2,10 +2,11 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from ticketpilot.models import Ticket
+from ticketpilot.legacy_cli.models import Ticket
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# 文件位于 ticketpilot/legacy_cli/storage.py，项目根目录需要向上三级。
+BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_FILE = BASE_DIR / "data" / "tickets.json"
 
 

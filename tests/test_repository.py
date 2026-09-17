@@ -7,17 +7,17 @@ from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
 
 # 导入数据库配置构造函数
-from ticketpilot.database import (
+from ticketpilot.core.database import (
     build_engine,
     build_session_factory,
     create_tables,
 )
 
 # 导入数据库工单模型
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.tickets.models import TicketRecord
 
 # 导入本批次需要测试的三个 Repository 函数
-from ticketpilot.repository import (
+from ticketpilot.tickets.repository import (
     # 导入创建工单函数
     create_ticket,
     # 导入删除工单函数

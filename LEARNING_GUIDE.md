@@ -1102,16 +1102,18 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 
 | 文件 | 职责 | 首次学习课程 | 是否能独立解释 |
 |---|---|---|---|
-| `main.py` | 项目根入口，只负责调用 `run_cli()` 启动应用 | 第 0–2 课 | 初步能够解释 |
-| `ticketpilot/models.py` | 保存项目常量和 `Ticket` dataclass 数据模型 | 第 2 课 | 初步能够解释 |
-| `ticketpilot/storage.py` | 负责 JSON 数据文件路径、读取和保存 | 第 2 课 | 学习中 |
-| `ticketpilot/cli.py` | 负责命令行菜单、输入输出和交互流程 | 第 2 课 | 学习中 |
+| `ARCHITECTURE.md` | 记录当前模块化单体结构、依赖方向和请求流程 | 架构重构 | 学习中 |
+| `main.py` | 旧命令行练习版入口，只负责调用 `run_cli()` | 第 0–2 课 | 初步能够解释 |
+| `ticketpilot/app.py` | FastAPI 组合根，只创建应用并注册各模块路由 | 架构重构 | 学习中 |
+| `ticketpilot/core/` | 保存配置、SQLAlchemy 基础设施和共享依赖 | 数据库阶段 | 学习中 |
+| `ticketpilot/identity/` | 保存用户、登录、JWT 和 RBAC 权限功能 | 认证阶段 | 学习中 |
+| `ticketpilot/tickets/` | 保存工单路由、Schema、ORM 和 Repository | 工单阶段 | 学习中 |
+| `ticketpilot/agent/` | 保存 Agent 循环、模型协议、分发器和受控工具 | Agent 阶段 | 学习中 |
+| `ticketpilot/legacy_cli/` | 隔离早期 dataclass + JSON 命令行练习代码 | 第 0–2 课 | 初步能够解释 |
 | `tests/test_models.py` | 验证 Ticket 默认状态和属性修改 | 第 2 课 | 初步能够解释 |
 | `tests/test_storage.py` | 使用临时目录验证 JSON 加载、保存和损坏数据异常 | 第 2 课 | 初步能够解释 |
 | `tests/test_cli.py` | 使用模拟输入和保存函数验证 CRUD 与失败回滚 | 第 2 课 | 学习中 |
-| `ticketpilot/api.py` | FastAPI 应用入口和当前 HTTP 路由 | 第 3 课 | 学习中 |
 | `tests/test_api.py` | 使用 TestClient 验证 API 状态码和 JSON 响应 | 第 3 课 | 学习中 |
-| `ticketpilot/schemas.py` | 定义 API 请求与响应 Schema，负责边界数据校验 | 第 3 课 | 学习中 |
 | `data/tickets.json` | 本地运行数据文件；用于练习持久化，已被 Git 忽略，后续将由 PostgreSQL 替代 | 第 1 课 | 初步能够解释 |
 
 ---
@@ -1132,6 +1134,7 @@ CLI 阶段已经建立第一组确定性自动测试；Agent 与 RAG 指标尚�
 | 2026-08-31 | 所有新概念必须先解释用途、问题、基本语法和最小示例，再给完整项目代码 | 避免先面对大段陌生代码后再倒推含义，提高理解和输入代码的质量 | 每个批次开始前检查是否存在未预讲的新内容 |
 | 2026-09-01 | Python、FastAPI、测试和后续框架概念优先使用 Java 生态作类比 | 学习者有 Java 基础，可通过 Java 语法、Maven、Spring Boot、JUnit、JPA 等已有认知降低理解成本；类比时仍说明关键差异 | 每个新概念预讲时执行 |
 | 2026-09-06 | 后续完整教学代码为每一行或紧密相关的小段补充用途与原因注释 | 学习者能够读懂现成代码，但需要通过逐行解释建立从需求到代码的思路 | 后续代码批次持续执行；重复结构仍保持注释简洁 |
+| 2026-09-17 | 重构为按业务功能分包的模块化单体 | 原根目录文件过多，`api.py` 同时承担装配、认证和工单路由；按 identity、tickets、agent、core 分包能保持职责清楚，又避免过早引入微服务和空 Service 层 | 出现跨 Repository 事务或复杂业务编排时再增加 Service 层 |
 
 ---
 

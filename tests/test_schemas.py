@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 # 导入需要测试的注册请求模型
-from ticketpilot.schemas import UserCreateRequest
+from ticketpilot.identity.schemas import UserCreateRequest
 
 
 # 验证合法注册数据能够通过检查

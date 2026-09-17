@@ -22,6 +22,30 @@ from sqlalchemy import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+# 验证最新迁移结构与当前 ORM 模型完全一致
+def test_alembic_models_match_latest_migration(
+    tmp_path,
+) -> None:
+    # 使用临时 SQLite，避免本测试依赖本机 Docker/PostgreSQL 是否启动
+    database_file = tmp_path / "alembic-check.db"
+    database_url = f"sqlite:///{database_file.as_posix()}"
+
+    # 让 Alembic 连接本测试独享的临时数据库
+    alembic_config = Config(
+        str(PROJECT_ROOT / "alembic.ini")
+    )
+    alembic_config.attributes["database_url"] = database_url
+
+    # 先建立最新迁移结构，再比较 ORM metadata；不一致时 check() 会直接报错
+    command.upgrade(
+        alembic_config,
+        "head",
+    )
+    command.check(
+        alembic_config,
+    )
+
+
 # 验证 Alembic 可以升级和回滚一个全新的临时数据库
 def test_alembic_upgrade_and_downgrade(
         # pytest 提供独立的临时目录

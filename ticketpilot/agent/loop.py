@@ -2,13 +2,13 @@
 from sqlalchemy.orm import Session
 
 # 导入工具分发器模块
-from ticketpilot import agent_dispatcher
+from ticketpilot.agent import dispatcher as agent_dispatcher
 
 # 导入所有模型必须遵守的接口
-from ticketpilot.agent_model import AgentModel
+from ticketpilot.agent.model import AgentModel
 
 # 导入消息和模型决定类型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     AgentMessage,
     FinalAnswerDecision,
     ToolCallDecision,

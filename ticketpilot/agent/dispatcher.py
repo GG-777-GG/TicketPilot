@@ -3,10 +3,10 @@
 from sqlalchemy.orm import Session
 
 # 导入真正执行工作的 Agent 工具模块
-from ticketpilot import agent_tools
+from ticketpilot.agent.tools import tickets as agent_tools
 
 # 导入工具请求、参数和结果模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     GetTicketToolArguments,
     GetTicketToolResult,
     ToolRequest,

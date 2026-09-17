@@ -1,17 +1,17 @@
 # 导入 pytest，用于验证预期异常
 import pytest
 # 导入测试数据库构造工具
-from ticketpilot.database import (
+from ticketpilot.core.database import (
     build_engine,
     build_session_factory,
     create_tables,
 )
 
 # 导入用户 ORM 模型
-from ticketpilot.db_models import UserRecord
+from ticketpilot.identity.models import UserRecord
 
 # 导入需要测试的用户 Repository 函数
-from ticketpilot.user_repository import (
+from ticketpilot.identity.repository import (
     UserAlreadyExistsError,
     create_user,
     get_user_by_email,

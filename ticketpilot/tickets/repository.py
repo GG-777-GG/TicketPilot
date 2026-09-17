@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # 导入数据库工单模型，对应 tickets 表
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.tickets.models import TicketRecord
 
 
 # 创建并提交一张新工单

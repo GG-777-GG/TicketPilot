@@ -1,4 +1,4 @@
-from ticketpilot.cli import run_cli
+from ticketpilot.legacy_cli.cli import run_cli
 
 
 # 启动 TicketPilot 命令行程序

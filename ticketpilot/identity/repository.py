@@ -12,7 +12,7 @@ from sqlalchemy.exc import (
 from sqlalchemy.orm import Session
 
 # 导入用户 ORM 模型
-from ticketpilot.db_models import UserRecord
+from ticketpilot.identity.models import UserRecord
 
 
 # 表示创建用户时邮箱已经存在

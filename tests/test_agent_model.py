@@ -2,10 +2,10 @@
 import pytest
 
 # 导入需要测试的 Fake Model
-from ticketpilot.agent_model import FakeAgentModel
+from ticketpilot.agent.model import FakeAgentModel
 
 # 导入测试需要使用的消息和决定模型
-from ticketpilot.agent_schemas import (
+from ticketpilot.agent.schemas import (
     AgentMessage,
     FinalAnswerDecision,
     ToolCallDecision,

@@ -5,13 +5,13 @@ import pytest
 from sqlalchemy.orm import Session
 
 # 导入需要测试的 Agent 工具模块
-from ticketpilot import agent_tools
+from ticketpilot.agent.tools import tickets as agent_tools
 
 # 导入工具参数模型
-from ticketpilot.agent_schemas import GetTicketToolArguments
+from ticketpilot.agent.schemas import GetTicketToolArguments
 
 # 导入数据库工单 ORM 模型
-from ticketpilot.db_models import TicketRecord
+from ticketpilot.tickets.models import TicketRecord
 
 
 # 验证查询到工单时，工具会返回安全的结构化数据
