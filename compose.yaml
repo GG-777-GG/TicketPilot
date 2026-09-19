@@ -2,9 +2,9 @@
 services:
   # database 是我们给 PostgreSQL 服务起的名字
   database:
-    # 使用 PostgreSQL 18 官方镜像
-    # 固定主版本，避免自动升级到未来不兼容的大版本
-    image: postgres:18
+    # 使用内置 pgvector 0.8.6 的 PostgreSQL 18 Trixie 镜像
+    # 保持和原 postgres:18 相同的操作系统版本，避免排序规则不一致
+    image: pgvector/pgvector:0.8.6-pg18-trixie
 
     # 第一次创建数据库时使用的初始化配置
     environment:
