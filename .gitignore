@@ -7,3 +7,8 @@ data/tickets.json
 data/*.db
 data/*.db-journal
 .pytest_cache/
+
+# 本地学习文档和 PPT 的构建缓存
+.codex-ppt-build/
+.codex-ppt-finalizer/
+output/

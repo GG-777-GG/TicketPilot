@@ -17,6 +17,35 @@ from ticketpilot.agent.schemas import (
     ToolRequest,
 )
 
+# MagicMock 用来模拟 Embedding Provider。
+from unittest.mock import MagicMock
+
+# 导入统一的向量模型接口。
+from ticketpilot.knowledge.embeddings.base import (
+    EmbeddingProvider,
+)
+
+from ticketpilot.agent.schemas import (
+    GetTicketToolArguments,
+    GetTicketToolResult,
+    SearchKnowledgeToolArguments,
+    SearchKnowledgeToolResult,
+    ToolRequest,
+)
+
+# 这个函数负责为 Dispatcher 测试创建工具上下文。
+def build_test_tool_context(
+    session: Session,
+) -> agent_dispatcher.AgentToolContext:
+    return agent_dispatcher.AgentToolContext(
+        session=session,
+
+        # 工单工具不会调用它，
+        # 但 AgentToolContext 要求提供完整依赖。
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
 
 # 验证 Dispatcher 会调用正确的工具
 def test_dispatch_tool_calls_get_ticket_details(
@@ -49,7 +78,7 @@ def test_dispatch_tool_calls_get_ticket_details(
 
     # 临时替换 Dispatcher 实际使用的查询工具
     monkeypatch.setattr(
-        agent_dispatcher.agent_tools,
+        agent_dispatcher.ticket_tools,
         "get_ticket_details",
         fake_get_ticket_details,
     )
@@ -68,8 +97,12 @@ def test_dispatch_tool_calls_get_ticket_details(
     # 创建并自动关闭测试 Session
     with Session() as session:
         # 让 Dispatcher 分发这次工具请求
+        context = build_test_tool_context(
+            session
+        )
+
         result = agent_dispatcher.dispatch_tool(
-            session,
+            context,
             request,
         )
 
@@ -114,7 +147,7 @@ def test_dispatch_tool_rejects_invalid_arguments(
 
     # 临时替换真正的查询工具
     monkeypatch.setattr(
-        agent_dispatcher.agent_tools,
+        agent_dispatcher.ticket_tools,
         "get_ticket_details",
         fake_get_ticket_details,
     )
@@ -154,15 +187,104 @@ def test_dispatch_tool_rejects_unknown_tool() -> None:
 
     # 创建并自动关闭测试 Session
     with Session() as session:
-        # Dispatcher 必须抛出 UnknownToolError
-        with pytest.raises(
-            agent_dispatcher.UnknownToolError,
+        context = build_test_tool_context(
+            session
+        )
 
-            # 同时检查异常中包含未知工具名称
-            match="delete_all_database",
+        with pytest.raises(
+                agent_dispatcher.UnknownToolError,
+                match="delete_all_database",
         ):
-            # 尝试分发未知工具请求
             agent_dispatcher.dispatch_tool(
-                session,
+                context,
                 request,
             )
+
+# 这个测试负责验证 Dispatcher 会分发知识检索工具。
+def test_dispatch_tool_calls_search_knowledge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 保存知识工具实际收到的参数。
+    received_arguments: list[
+        SearchKnowledgeToolArguments
+    ] = []
+
+    # 创建 Fake Embedding Provider。
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    # 准备模拟工具返回的结果。
+    expected_result = SearchKnowledgeToolResult(
+        found=False,
+        message="没有找到相关企业知识",
+        query="如何重置密码？",
+        matches=[],
+    )
+
+    # 定义假的知识检索工具。
+    def fake_search_knowledge(
+        session: Session,
+        received_provider: EmbeddingProvider,
+        arguments: SearchKnowledgeToolArguments,
+    ) -> SearchKnowledgeToolResult:
+        # 必须收到上下文中的同一个 Provider。
+        assert (
+            received_provider
+            is embedding_provider
+        )
+
+        received_arguments.append(
+            arguments
+        )
+
+        return expected_result
+
+    # 临时替换真正的知识检索工具。
+    monkeypatch.setattr(
+        agent_dispatcher.knowledge_tools,
+        "search_knowledge",
+        fake_search_knowledge,
+    )
+
+    # 模拟模型生成知识检索工具调用。
+    request = ToolRequest(
+        name="  search_knowledge  ",
+        arguments={
+            # 故意添加空格，验证专属 Schema 会清理。
+            "query": "  如何重置密码？  ",
+            "top_k": 3,
+            "min_similarity": 0.5,
+        },
+    )
+
+    with Session() as session:
+        # 使用当前测试专属的 Provider 创建上下文。
+        context = (
+            agent_dispatcher.AgentToolContext(
+                session=session,
+                embedding_provider=(
+                    embedding_provider
+                ),
+            )
+        )
+
+        result = agent_dispatcher.dispatch_tool(
+            context,
+            request,
+        )
+
+    # Dispatcher 应该返回知识工具提供的结果。
+    assert result == expected_result
+
+    # 知识工具应该只被执行一次。
+    assert len(
+        received_arguments
+    ) == 1
+
+    arguments = received_arguments[0]
+
+    # query 两端空格应该已经被清理。
+    assert arguments.query == "如何重置密码？"
+    assert arguments.top_k == 3
+    assert arguments.min_similarity == 0.5

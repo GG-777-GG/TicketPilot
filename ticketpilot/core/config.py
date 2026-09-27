@@ -52,8 +52,18 @@ DEFAULT_OLLAMA_BASE_URL = (
 # TicketPilot 默认使用的本地模型
 DEFAULT_OLLAMA_MODEL = "qwen3:1.7b"
 
-# 单次模型请求最多等待 120 秒
+# 默认使用的本地 Embedding 模型。
+DEFAULT_OLLAMA_EMBEDDING_MODEL = (
+    "qwen3-embedding:0.6b"
+)
+
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
+
+# 单次 Embedding 请求最多等待 120 秒。
+DEFAULT_OLLAMA_EMBEDDING_TIMEOUT_SECONDS = 120.0
+
+# 每次最多发送给模型的文本数量。
+DEFAULT_EMBEDDING_BATCH_SIZE = 16
 
 # 集中定义 TicketPilot 的所有环境配置
 # 类似 Spring Boot 中的 @ConfigurationProperties
@@ -126,6 +136,27 @@ class Settings(BaseSettings):
 
         # 最长暂时限制为十分钟
         le=600,
+    )
+    # 生成知识向量时使用的 Ollama 模型。
+    ollama_embedding_model: str = Field(
+        default=DEFAULT_OLLAMA_EMBEDDING_MODEL,
+        min_length=1,
+    )
+
+    # 单次 Embedding 请求允许等待的秒数。
+    ollama_embedding_timeout_seconds: float = Field(
+        default=(
+            DEFAULT_OLLAMA_EMBEDDING_TIMEOUT_SECONDS
+        ),
+        ge=1,
+        le=600,
+    )
+
+    # 一次发送给 Embedding 模型的最大文本数量。
+    embedding_batch_size: int = Field(
+        default=DEFAULT_EMBEDDING_BATCH_SIZE,
+        ge=1,
+        le=256,
     )
 
 # 创建全局配置对象

@@ -49,6 +49,11 @@ from ticketpilot.agent.dependencies import (
     AgentModelDependency,
 )
 
+# FastAPI 自动提供知识检索使用的 Embedding Provider。
+from ticketpilot.knowledge.dependencies import (
+    EmbeddingProviderDependency,
+)
+
 # 导入 Agent Loop 和循环次数超限异常
 from ticketpilot.agent.loop import (
     AgentLoopLimitError,
@@ -107,19 +112,27 @@ def chat_with_agent(
 
     # FastAPI 自动取得缓存的 OllamaModel
     model: AgentModelDependency,
+
+    # FastAPI 自动取得缓存的 Embedding Provider。
+    embedding_provider: EmbeddingProviderDependency,
 ) -> AgentChatResponse:
     # 捕获 Agent 执行过程中可能出现的已知错误
     try:
         # 运行完整 Agent 循环
-        answer = run_agent(
-            # 工具查询工单时使用当前请求的 Session
+        result = run_agent(
+            # 工具访问数据库时使用的 Session。
             session,
 
-            # 使用依赖注入提供的模型
+            # 负责决定是否调用工具的对话模型。
             model,
 
-            # 把客户端问题交给 Agent
+            # 用户提交的问题。
             request.message,
+
+            # search_knowledge 工具生成问题向量时使用。
+            embedding_provider=(
+                embedding_provider
+            ),
         )
 
     # Ollama 没启动、超时或返回无效内容
@@ -152,7 +165,10 @@ def chat_with_agent(
             detail="Agent 服务暂时不可用",
         ) from error
 
-    # 把 Agent 返回的字符串包装成 API 响应
+    # 把 Agent 的答案和真实来源包装成 API 响应。
     return AgentChatResponse(
-        answer=answer,
+        answer=result.answer,
+        sources=list(
+            result.sources
+        ),
     )

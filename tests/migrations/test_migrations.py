@@ -19,7 +19,7 @@ from sqlalchemy import (
 
 
 # 根据当前测试文件的位置得到项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # 验证最新迁移结构与当前 ORM 模型完全一致

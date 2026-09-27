@@ -165,3 +165,80 @@ def test_ollama_model_wraps_timeout_error() -> None:
         model.decide(
             [AgentMessage(role="user", content="你好")]
         )
+
+# 这个测试负责验证系统提示包含两个 Agent 工具的规则。
+def test_ollama_model_sends_knowledge_tool_instructions() -> None:
+    # Fake Client 返回一个合法的直接回答。
+    client = FakeOllamaClient(
+        content=(
+            '{"kind":"final_answer",'
+            '"answer":"测试回答"}'
+        ),
+    )
+
+    model = OllamaModel(
+        client=client,
+        model="test-model",
+    )
+
+    # 执行一次模型调用，让 Provider 组装完整消息。
+    model.decide(
+        [
+            AgentMessage(
+                role="user",
+                content="如何重置密码？",
+            ),
+        ]
+    )
+
+    # 取得发送给 Ollama 的消息列表。
+    sent_messages = (
+        client.calls[0]["messages"]
+    )
+
+    assert isinstance(
+        sent_messages,
+        list,
+    )
+
+    # 第一条消息必须是系统提示。
+    system_message = sent_messages[0]
+
+    assert system_message["role"] == "system"
+
+    system_content = system_message["content"]
+
+    assert isinstance(
+        system_content,
+        str,
+    )
+
+    # 系统提示必须声明具体工单查询工具。
+    assert (
+        "get_ticket_details"
+        in system_content
+    )
+
+    # 系统提示必须声明企业知识检索工具。
+    assert (
+        "search_knowledge"
+        in system_content
+    )
+
+    # 必须提醒模型不能编造工单 ID。
+    assert (
+        "不得编造 ticket_id"
+        in system_content
+    )
+
+    # 必须要求知识回答说明文档来源。
+    assert (
+        "document_title"
+        in system_content
+    )
+
+    # 用户消息应该紧跟在系统提示后面。
+    assert sent_messages[1] == {
+        "role": "user",
+        "content": "如何重置密码？",
+    }

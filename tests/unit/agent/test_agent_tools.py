@@ -7,12 +7,40 @@ from sqlalchemy.orm import Session
 # 导入需要测试的 Agent 工具模块
 from ticketpilot.agent.tools import tickets as agent_tools
 
-# 导入工具参数模型
-from ticketpilot.agent.schemas import GetTicketToolArguments
+
+
 
 # 导入数据库工单 ORM 模型
 from ticketpilot.tickets.models import TicketRecord
 
+# MagicMock 用来模拟 Embedding Provider。
+from unittest.mock import MagicMock
+
+# 导入知识检索工具模块。
+from ticketpilot.agent.tools import (
+    knowledge as knowledge_tools,
+)
+
+# 导入知识检索工具参数模型。
+from ticketpilot.agent.schemas import (
+    GetTicketToolArguments,
+    SearchKnowledgeToolArguments,
+)
+
+# 导入知识来源枚举。
+from ticketpilot.knowledge.documents import (
+    KnowledgeSourceType,
+)
+
+# 导入 Embedding Provider 接口。
+from ticketpilot.knowledge.embeddings.base import (
+    EmbeddingProvider,
+)
+
+# 导入 Retrieval Service 的内部结果类型。
+from ticketpilot.knowledge.retrieval import (
+    RetrievedKnowledgeChunk,
+)
 
 # 验证查询到工单时，工具会返回安全的结构化数据
 def test_get_ticket_details_returns_safe_ticket_data(
@@ -170,3 +198,145 @@ def test_get_ticket_details_propagates_repository_error(
                     ticket_id="ticket-001",
                 ),
             )
+
+# 这个测试负责验证知识检索工具会返回安全的匹配结果。
+def test_search_knowledge_returns_safe_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 创建模拟 Session 和向量模型。
+    session = MagicMock(
+        spec=Session
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    # 保存工具传给 Retrieval Service 的参数。
+    received_calls: list[
+        dict[str, object]
+    ] = []
+
+    # 模拟 Retrieval Service 返回一条知识片段。
+    def fake_retrieve_knowledge(
+        **kwargs,
+    ) -> tuple[
+        RetrievedKnowledgeChunk,
+        ...,
+    ]:
+        received_calls.append(
+            kwargs
+        )
+
+        return (
+            RetrievedKnowledgeChunk(
+                chunk_id="chunk-001",
+                document_id="document-001",
+                document_title="密码重置说明",
+                document_version=1,
+                source_type=(
+                    KnowledgeSourceType.MANUAL
+                ),
+                source_uri=None,
+                chunk_index=0,
+                content=(
+                    "用户可以通过注册邮箱重置密码。"
+                ),
+                start_offset=0,
+                end_offset=17,
+                cosine_distance=0.1,
+            ),
+        )
+
+    # 临时替换真正的 Retrieval Service。
+    monkeypatch.setattr(
+        knowledge_tools,
+        "retrieve_knowledge",
+        fake_retrieve_knowledge,
+    )
+
+    # 执行知识检索工具。
+    result = knowledge_tools.search_knowledge(
+        session,
+        embedding_provider,
+        SearchKnowledgeToolArguments(
+            query="如何重置密码？",
+            top_k=3,
+            min_similarity=0.5,
+        ),
+    )
+
+    # Retrieval Service 应该只被调用一次。
+    assert len(
+        received_calls
+    ) == 1
+
+    service_call = received_calls[0]
+
+    assert service_call["session"] is session
+    assert (
+        service_call["embedding_provider"]
+        is embedding_provider
+    )
+    assert (
+        service_call["question"]
+        == "如何重置密码？"
+    )
+    assert service_call["top_k"] == 3
+    assert (
+        service_call["min_similarity"]
+        == 0.5
+    )
+
+    # 工具应该明确告诉模型找到了知识。
+    assert result.found is True
+    assert result.message == (
+        "已找到 1 条相关企业知识"
+    )
+    assert result.query == "如何重置密码？"
+    assert len(result.matches) == 1
+
+    match = result.matches[0]
+
+    assert match.chunk_id == "chunk-001"
+    assert match.document_title == "密码重置说明"
+    assert match.content == (
+        "用户可以通过注册邮箱重置密码。"
+    )
+
+    # similarity = 1 - cosine_distance
+    assert match.similarity == pytest.approx(
+        0.9
+    )
+
+# 这个测试负责验证没有知识匹配时返回 found=False。
+def test_search_knowledge_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    # 模拟 Retrieval Service 返回空元组。
+    monkeypatch.setattr(
+        knowledge_tools,
+        "retrieve_knowledge",
+        lambda **kwargs: (),
+    )
+
+    result = knowledge_tools.search_knowledge(
+        session,
+        embedding_provider,
+        SearchKnowledgeToolArguments(
+            query="不存在的企业知识",
+        ),
+    )
+
+    assert result.found is False
+    assert result.message == (
+        "没有找到相关企业知识"
+    )
+    assert result.query == "不存在的企业知识"
+    assert result.matches == []

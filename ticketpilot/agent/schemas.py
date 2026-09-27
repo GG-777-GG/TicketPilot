@@ -14,6 +14,18 @@ from ticketpilot.tickets.types import (
     TicketStatus,
 )
 
+# 导入知识来源枚举。
+from ticketpilot.knowledge.documents import (
+    KnowledgeSourceType,
+)
+
+# 复用知识检索服务的默认参数。
+from ticketpilot.knowledge.retrieval import (
+    DEFAULT_MIN_SIMILARITY,
+    DEFAULT_RETRIEVAL_TOP_K,
+    MAX_RETRIEVAL_TOP_K,
+)
+
 
 # 定义“查询单张工单工具”能够接收的参数
 class GetTicketToolArguments(BaseModel):
@@ -195,14 +207,163 @@ class AgentChatRequest(BaseModel):
         max_length=4000,
     )
 
+# 定义 Agent 回答所引用的一条真实知识来源。
+class AgentSource(BaseModel):
+    # 拒绝未声明的额外字段。
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    # 实际被检索到的知识片段 ID。
+    chunk_id: str
+
+    # 知识片段所属文档的 ID。
+    document_id: str
+
+    # 给用户展示的文档标题。
+    document_title: str
+
+    # 回答引用的是文档的哪个版本。
+    document_version: int = Field(
+        ge=1,
+    )
+
+    # 知识来源类型，例如 manual、file 或 url。
+    source_type: KnowledgeSourceType
+
+    # 文件路径或者网页地址；手动输入时可以是 None。
+    source_uri: str | None
+
+    # 当前片段在文档中的顺序。
+    chunk_index: int = Field(
+        ge=0,
+    )
+
+    # 当前知识片段与用户问题的相似度。
+    similarity: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
 
 # 定义 Agent 对话接口返回的数据
+# 定义 Agent 对话接口返回的数据。
 class AgentChatResponse(BaseModel):
-    # 保存 Agent 最终生成的回答
+    # 保存 Agent 最终生成的自然语言回答。
     answer: str = Field(
-        # Agent 回答不能为空
         min_length=1,
-
-        # 与 FinalAnswerDecision 的最大长度保持一致
         max_length=8000,
+    )
+
+    # 保存回答实际使用的知识来源。
+    # 普通聊天或只查询工单时，可以是空列表。
+    sources: list[AgentSource] = Field(
+        default_factory=list,
+    )
+
+# 定义“搜索企业知识库工具”能够接收的参数。
+class SearchKnowledgeToolArguments(
+    BaseModel
+):
+    model_config = ConfigDict(
+        # 自动删除问题两端的空格。
+        str_strip_whitespace=True,
+
+        # 拒绝模型生成未知参数。
+        extra="forbid",
+    )
+
+    # 模型希望从知识库中查询的问题。
+    query: str = Field(
+        min_length=1,
+        max_length=2000,
+    )
+
+    # 最多返回多少条相关知识片段。
+    top_k: int = Field(
+        default=DEFAULT_RETRIEVAL_TOP_K,
+        ge=1,
+        le=MAX_RETRIEVAL_TOP_K,
+    )
+
+    # 过滤低于该相似度的片段。
+    min_similarity: float = Field(
+        default=DEFAULT_MIN_SIMILARITY,
+        ge=0.0,
+        le=1.0,
+    )
+
+# 定义允许交给模型阅读的一条知识匹配结果。
+class KnowledgeToolMatch(
+    BaseModel
+):
+    model_config = ConfigDict(
+
+        # 拒绝模型生成未知参数。
+        extra="forbid",
+    )
+    # 知识片段 ID。
+    chunk_id: str
+
+    # 片段所属文档 ID。
+    document_id: str
+
+    # 文档标题，用于模型说明答案来源。
+    document_title: str
+
+    # 当前知识文档版本。
+    document_version: int = Field(
+        ge=1
+    )
+
+    # manual、file 或 url。
+    source_type: KnowledgeSourceType
+
+    # 文件名或者网页地址。
+    source_uri: str | None
+
+    # 片段在文档中的顺序。
+    chunk_index: int = Field(
+        ge=0
+    )
+
+    # 真正交给模型阅读的知识正文。
+    content: str = Field(
+        min_length=1
+    )
+
+    # 片段在清洗后正文中的开始位置。
+    start_offset: int = Field(
+        ge=0
+    )
+
+    # 片段在清洗后正文中的结束位置。
+    end_offset: int = Field(
+        ge=1
+    )
+
+    # 当前片段与用户问题的相似度。
+    similarity: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# 定义知识检索工具的完整返回结果。
+class SearchKnowledgeToolResult(
+    BaseModel
+):
+    # True 表示找到了相关知识。
+    found: bool
+
+    # 给模型阅读的简短结果说明。
+    message: str
+
+    # 实际执行检索的问题。
+    query: str
+
+    # 按相关度排列的知识片段。
+    matches: list[
+        KnowledgeToolMatch
+    ] = Field(
+        default_factory=list
     )

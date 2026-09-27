@@ -216,3 +216,6 @@ def test_agent_chat_response_accepts_answer() -> None:
     assert response.answer == (
         "工单 ticket-001 当前正在处理中。"
     )
+
+    # 没有传入来源时默认使用空列表。
+    assert response.sources == []

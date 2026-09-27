@@ -23,3 +23,10 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers --import-mode=importlib"
+markers = [
+    "integration: 使用数据库或多个应用组件的集成测试",
+    "postgres: 必须连接真实 PostgreSQL 或 pgvector 的测试",
+    "ollama: 必须连接真实 Ollama 服务的测试",
+    "e2e: 验证完整业务流程的端到端测试",
+]

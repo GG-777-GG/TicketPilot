@@ -68,10 +68,11 @@ SessionLocal = build_session_factory(engine)
 def create_tables(
         database_engine: Engine = engine,
 ) -> None:
-    # 导入两个业务模块的 ORM 模型，把它们登记到同一个 Base.metadata。
+    # 导入全部业务模块的 ORM 模型。
+    # 导入时，模型类会登记到同一个 Base.metadata。
     import ticketpilot.identity.models
+    import ticketpilot.knowledge.models
     import ticketpilot.tickets.models
-
     Base.metadata.create_all(
         bind=database_engine,
     )

@@ -7,9 +7,11 @@ from pydantic import ValidationError
 # 导入默认数据库地址和配置类
 from ticketpilot.core.config import (
     DEFAULT_DATABASE_URL,
+    DEFAULT_EMBEDDING_BATCH_SIZE,
+    DEFAULT_OLLAMA_EMBEDDING_MODEL,
+    DEFAULT_OLLAMA_EMBEDDING_TIMEOUT_SECONDS,
     Settings,
 )
-
 
 # 验证没有外部配置时，会使用默认 SQLite 地址
 def test_settings_uses_default_database_url(
@@ -163,6 +165,142 @@ def test_settings_rejects_invalid_token_expiry(
         ValidationError
     ):
         # 不读取真实 .env，保证测试结果稳定
+        Settings(
+            _env_file=None,
+        )
+
+# 这个测试负责验证 Embedding 配置的默认值。
+def test_settings_uses_default_embedding_configuration(
+    monkeypatch,
+) -> None:
+    # 删除可能存在的环境变量，避免干扰默认值测试。
+    for environment_name in (
+        "OLLAMA_EMBEDDING_MODEL",
+        "ollama_embedding_model",
+        "OLLAMA_EMBEDDING_TIMEOUT_SECONDS",
+        "ollama_embedding_timeout_seconds",
+        "EMBEDDING_BATCH_SIZE",
+        "embedding_batch_size",
+    ):
+        monkeypatch.delenv(
+            environment_name,
+            raising=False,
+        )
+
+    # 不读取电脑上的真实 .env 文件。
+    test_settings = Settings(
+        _env_file=None,
+    )
+
+    assert (
+        test_settings.ollama_embedding_model
+        == DEFAULT_OLLAMA_EMBEDDING_MODEL
+    )
+    assert (
+        test_settings.ollama_embedding_timeout_seconds
+        == DEFAULT_OLLAMA_EMBEDDING_TIMEOUT_SECONDS
+    )
+    assert (
+        test_settings.embedding_batch_size
+        == DEFAULT_EMBEDDING_BATCH_SIZE
+    )
+
+
+# 这个测试负责验证环境变量可以覆盖 Embedding 配置。
+def test_settings_reads_embedding_configuration_from_environment(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "OLLAMA_EMBEDDING_MODEL",
+        "test-embedding-model",
+    )
+    monkeypatch.setenv(
+        "OLLAMA_EMBEDDING_TIMEOUT_SECONDS",
+        "45",
+    )
+    monkeypatch.setenv(
+        "EMBEDDING_BATCH_SIZE",
+        "8",
+    )
+
+    test_settings = Settings(
+        _env_file=None,
+    )
+
+    assert (
+        test_settings.ollama_embedding_model
+        == "test-embedding-model"
+    )
+    assert (
+        test_settings.ollama_embedding_timeout_seconds
+        == 45
+    )
+    assert test_settings.embedding_batch_size == 8
+
+
+@pytest.mark.parametrize(
+    (
+        "environment_name",
+        "invalid_value",
+    ),
+    [
+        # 模型名称不能为空。
+        (
+            "OLLAMA_EMBEDDING_MODEL",
+            "",
+        ),
+
+        # 超时时间不能小于 1 秒。
+        (
+            "OLLAMA_EMBEDDING_TIMEOUT_SECONDS",
+            "0",
+        ),
+
+        # 超时时间不能超过 600 秒。
+        (
+            "OLLAMA_EMBEDDING_TIMEOUT_SECONDS",
+            "601",
+        ),
+
+        # 超时时间必须是数字。
+        (
+            "OLLAMA_EMBEDDING_TIMEOUT_SECONDS",
+            "not-a-number",
+        ),
+
+        # 批大小不能小于 1。
+        (
+            "EMBEDDING_BATCH_SIZE",
+            "0",
+        ),
+
+        # 批大小不能超过 256。
+        (
+            "EMBEDDING_BATCH_SIZE",
+            "257",
+        ),
+
+        # 批大小必须是整数。
+        (
+            "EMBEDDING_BATCH_SIZE",
+            "not-a-number",
+        ),
+    ],
+)
+# 这个测试负责验证非法 Embedding 配置会被拒绝。
+def test_settings_rejects_invalid_embedding_configuration(
+    environment_name: str,
+    invalid_value: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        environment_name,
+        invalid_value,
+    )
+
+    with pytest.raises(
+        ValidationError
+    ):
         Settings(
             _env_file=None,
         )

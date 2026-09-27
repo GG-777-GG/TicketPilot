@@ -14,6 +14,9 @@ from ticketpilot.identity.router import (
 from ticketpilot.tickets.router import (
     router as tickets_router,
 )
+from ticketpilot.knowledge.router import (
+    router as knowledge_router,
+)
 
 
 def health_check() -> dict[str, str]:
@@ -48,8 +51,14 @@ def create_app() -> FastAPI:
 
     # 注册 Agent 对话接口
     application.include_router(agent_router)
-    return application
 
+
+    # 注册知识库文档管理接口。
+    application.include_router(
+        knowledge_router
+    )
+
+    return application
 
 # ASGI 服务器和测试代码统一导入这个全局应用对象。
 app = create_app()
