@@ -8,7 +8,7 @@
 
 此前约65%是原完整范围的工程估算。此次缩减需求不会增加实际完成的功能，不重新包装成更高的完成百分比。
 
-已有基础：认证/RBAC、工单CRUD、文档异步入库、RAG引用/证据及现有10个前端页面；正式审批/幂等执行、工作流启动恢复重试、Agent受控申请、实际MCP只读工具、审计查询和真实HTTP/步骤Trace。最近相关pytest836项通过；后端镜像及独立数据库/迁移/后端Compose已运行，另有真实PostgreSQL临时库审批/审计/stdio MCP验证（模型替身）。演示客服/主管账号与登录权限已验证，前端镜像、Worker编排、演示业务数据、CI、最终评测和材料待收尾。以上不是全项目或生产验收。
+已有基础：认证/RBAC、工单CRUD、文档异步入库、RAG引用/证据及现有10个前端页面；正式审批/幂等执行、工作流启动恢复重试、Agent受控申请、实际MCP只读工具、审计查询和真实HTTP/步骤Trace。最近相关pytest836项通过；后端镜像及独立数据库/迁移/后端Compose已运行，另有真实PostgreSQL临时库审批/审计/stdio MCP验证（模型替身）。演示客服/主管账号与登录权限已验证，前端/Nginx、Worker与真实文件入库已验证，三题问答按学习者反馈验收；GitHub前端CI通过、后端CI安装环境待修复，最终评测与材料待收尾。以上不是全项目或生产验收。
 
 2026-11-14知识问答与CI教学：学习者对有依据/无依据/部分依据三题回复可以了，按用户反馈记录手工验收完成，老师未读取三题原始响应，不新增准确率或延迟结论。进入GitHub Actions持续集成，区别于LangGraph业务工作流；部署/CI配置由学习者手写。拟新增.github/workflows/ci.yml：push/pull_request/workflow_dispatch，两独立Ubuntu job，后端Python3.12.16、uv0.11.32、锁文件同步和6目录隔离单测，前端Node24、npm ci/test/lint/build。不使用真实数据库/Ollama/本机凭据。老师本机实测拟选后端228 passed in 3.45s，前端12项测试、lint及生产构建通过；不是GitHub/Linux CI结果，也不与历史836项叠加。尚未创建CI文件、提交或推送。理解题：为什么CI应使用临时数据库和模型替身，而不连接本机演示数据库与Ollama？
 
@@ -19,6 +19,8 @@
 2026-11-14首次推送教学准备：学习者已重新暂存当前项目，根CI配置、依赖锁文件和主要部署/源码均在索引中。核对暂存361个新增/修改文件与工作区内容一致（忽略CRLF差异），无.env/演示凭据/data/tmp/venv/node_modules/dist进入本次暂存清单；tmp未跟踪候选0。用户创建并提供https://github.com/GG-777-GG/TicketPilot，当前main且仍未配置远程。格式检查发现9处文件末尾多余空行，老师仅清理这些空行，未改代码逻辑、未更新索引；教学文档亦需学习者重新暂存。指导学习者更新快照、检查cached、配置origin、提交并push -u origin main，在GitHub Actions查看两job。老师未配置远程、提交或推送，远端CI尚无运行证据；不因纯空行重跑已通过测试。理解题：git commit和git push分别把代码保存到了哪里？
 
 2026-11-14首次远端CI核对：本地main提交3e504b7已成功推送，git ls-remote确认远端同SHA，origin地址正确且上游origin/main。通过已有Git认证只读访问GitHub API，凭据仅内存使用未打印/落盘；run43600290523为completed/failure、jobs为空，check-suite亦无check-run注释。检查配置并核对GitHub官方Context availability，发现老师此前示例在jobs.backend.env引用runner.temp，该位置不支持runner；需由学习者移两项路径到Run backend tests步骤env（此处支持runner）。在内存中验证候选YAML结构与测试命令不变，未改CI文件/索引/远端，不宣称已修复或CI通过；该配置错误与零job现象一致，未取得平台原始校验注释。提供修改、单独提交和push后查看最新run步骤。原.env.example与.gitattributes仍为未纳入提交的本机修改，保留。理解题：修复配置后，为什么要看新提交的CI记录，而不是重新运行旧提交的失败记录？
+
+2026-11-14第二次远端CI实际结果：用户修复并推送c0c8b44，远端main一致；run43600842541已正常创建两job，Frontend checks测试/lint/build全部success。Backend checks在Install dependencies失败，Run backend tests skipped；日志明确No interpreter found for Python 3.12.16 in managed installations or search path并提示uv内置下载清单可能需更新。固定uv0.11.32的本机可下载3.12目录不含3.12.16；该观察为Windows元数据，不宣称完整Linux安装验收。提供由学习者修改CI为python-version 3.12，并在sync前显式uv python install 3.12，允许使用工具已支持的3.12补丁版本；不改本机解释器、Dockerfile或uv.lock。内存候选YAML结构与步骤顺序检查通过，未代写配置、未提交/推送。当前远端前端CI已通过，后端测试未执行，整个CI未通过。理解题：为什么Install dependencies失败后，Run backend tests显示skipped而不是failure？
 
 ## 必须保留的面试主线
 

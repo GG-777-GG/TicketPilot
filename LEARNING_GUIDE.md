@@ -5,7 +5,7 @@
 > 当前版本：v0.1  
 > 创建日期：2026-08-30  
 > 当前状态：2026-11-14，按11月20日面试演示版计划推进；新核心代码与部署配置由学习者手写，老师先逐项解释；测试及已授权的重复接线由老师处理并解释。
-> 当前阶段：审批/工作流/受控Agent/MCP、审计和HTTP/步骤Trace已接入，最近相关pytest836项通过。后端镜像及独立Compose的数据库、迁移、后端已运行；真实PostgreSQL临时库的API/幂等/审计/stdio MCP验证通过，模型为替身。两个演示角色账号及真实登录权限验证完成；前端容器与Nginx代理已通过运行验证；Worker编排、演示业务数据、CI、最终评测与面试材料待收尾；审批前端暂缓。证据与边界见“当前课程”，不当作全项目或生产验收。
+> 当前阶段：审批/工作流/受控Agent/MCP、审计和HTTP/步骤Trace已接入，最近相关pytest836项通过。后端镜像及独立Compose的数据库、迁移、后端已运行；真实PostgreSQL临时库的API/幂等/审计/stdio MCP验证通过，模型为替身。两个演示角色账号及真实登录权限验证完成；前端容器与Nginx代理已通过运行验证；Worker与真实文件入库已验证，三题问答按学习者反馈验收；GitHub前端CI通过、后端CI待修复，最终评测与面试材料待收尾；审批前端暂缓。证据与边界见“当前课程”，不当作全项目或生产验收。
 
 ---
 
@@ -299,6 +299,8 @@ flowchart TD
 ---
 
 ## 8. 当前课程
+
+2026-11-14第二次远端CI实际结果：用户修复并推送c0c8b44，远端main一致；run43600842541已正常创建两job，Frontend checks测试/lint/build全部success。Backend checks在Install dependencies失败，Run backend tests skipped；日志明确No interpreter found for Python 3.12.16 in managed installations or search path并提示uv内置下载清单可能需更新。固定uv0.11.32的本机可下载3.12目录不含3.12.16；该观察为Windows元数据，不宣称完整Linux安装验收。提供由学习者修改CI为python-version 3.12，并在sync前显式uv python install 3.12，允许使用工具已支持的3.12补丁版本；不改本机解释器、Dockerfile或uv.lock。内存候选YAML结构与步骤顺序检查通过，未代写配置、未提交/推送。当前远端前端CI已通过，后端测试未执行，整个CI未通过。理解题：为什么Install dependencies失败后，Run backend tests显示skipped而不是failure？
 
 2026-11-14首次远端CI核对：本地main提交3e504b7已成功推送，git ls-remote确认远端同SHA，origin地址正确且上游origin/main。通过已有Git认证只读访问GitHub API，凭据仅内存使用未打印/落盘；run43600290523为completed/failure、jobs为空，check-suite亦无check-run注释。检查配置并核对GitHub官方Context availability，发现老师此前示例在jobs.backend.env引用runner.temp，该位置不支持runner；需由学习者移两项路径到Run backend tests步骤env（此处支持runner）。在内存中验证候选YAML结构与测试命令不变，未改CI文件/索引/远端，不宣称已修复或CI通过；该配置错误与零job现象一致，未取得平台原始校验注释。提供修改、单独提交和push后查看最新run步骤。原.env.example与.gitattributes仍为未纳入提交的本机修改，保留。理解题：修复配置后，为什么要看新提交的CI记录，而不是重新运行旧提交的失败记录？
 

@@ -2,6 +2,8 @@
 
 测试采用“测试层级 + 业务模块”组织方式。
 
+2026-11-14第二次远端CI实际结果：用户修复并推送c0c8b44，远端main一致；run43600842541已正常创建两job，Frontend checks测试/lint/build全部success。Backend checks在Install dependencies失败，Run backend tests skipped；日志明确No interpreter found for Python 3.12.16 in managed installations or search path并提示uv内置下载清单可能需更新。固定uv0.11.32的本机可下载3.12目录不含3.12.16；该观察为Windows元数据，不宣称完整Linux安装验收。提供由学习者修改CI为python-version 3.12，并在sync前显式uv python install 3.12，允许使用工具已支持的3.12补丁版本；不改本机解释器、Dockerfile或uv.lock。内存候选YAML结构与步骤顺序检查通过，未代写配置、未提交/推送。当前远端前端CI已通过，后端测试未执行，整个CI未通过。理解题：为什么Install dependencies失败后，Run backend tests显示skipped而不是failure？
+
 2026-11-14知识问答与CI教学：学习者对有依据/无依据/部分依据三题回复可以了，按用户反馈记录手工验收完成，老师未读取三题原始响应，不新增准确率或延迟结论。进入GitHub Actions持续集成，区别于LangGraph业务工作流；部署/CI配置由学习者手写。拟新增.github/workflows/ci.yml：push/pull_request/workflow_dispatch，两独立Ubuntu job，后端Python3.12.16、uv0.11.32、锁文件同步和6目录隔离单测，前端Node24、npm ci/test/lint/build。不使用真实数据库/Ollama/本机凭据。老师本机实测拟选后端228 passed in 3.45s，前端12项测试、lint及生产构建通过；不是GitHub/Linux CI结果，也不与历史836项叠加。尚未创建CI文件、提交或推送。理解题：为什么CI应使用临时数据库和模型替身，而不连接本机演示数据库与Ollama？
 
 2026-11-14演示账号：新增scripts/bootstrap_demo_accounts.py，仅向ticketpilot-demo创建agent.demo@example.com客服与supervisor.demo@example.com主管。随机密码保存在Git/Docker忽略的.env.demo.accounts，库中仅存哈希；重复执行核对并保留账号，角色/密码/停用状态冲突则整批回滚。实际18000登录及auth/me通过，客服审计403、主管200；重复执行零写入、凭据文件不变，第二账号冲突时首个探针插入回滚且未残留。未操作原业务库；未重跑历史836项pytest。下一批为前端容器/Nginx与Worker编排。

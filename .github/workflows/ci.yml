@@ -36,17 +36,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      # 安装uv，并指定项目使用的Python版本。
-      - name: Set up uv and Python
+            # 安装固定版本的uv，并选择Python 3.12系列。
+      - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
           version: "0.11.32"
-          python-version: "3.12.16"
+          python-version: "3.12"
 
-      # 根据uv.lock安装运行及开发依赖，包括pytest。
+      # 显式安装当前uv支持的Python 3.12补丁版本。
+      - name: Install Python
+        run: uv python install 3.12
+
+      # Python准备完成后，再按锁文件安装项目依赖。
       - name: Install dependencies
         run: uv sync --locked --dev
-
       # 第一版先执行已验证的隔离单测范围。
       - name: Run backend tests
         # runner上下文在步骤env中可用。
