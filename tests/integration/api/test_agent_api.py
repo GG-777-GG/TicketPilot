@@ -40,6 +40,7 @@ from ticketpilot.app import app
 # 导入模型依赖工厂
 from ticketpilot.agent.dependencies import (
     get_agent_model,
+    get_evidence_verifier,
 )
 
 # 导入 Fake Model 和统一模型接口
@@ -48,10 +49,15 @@ from ticketpilot.agent.model import (
     FakeAgentModel,
 )
 
+# 导入 Agent Loop 的证据校验异常和路由模块。
+from ticketpilot.agent.loop import AgentRunResult, InvalidAgentEvidenceError
+from ticketpilot.agent import router as agent_router
+
 # 导入 Ollama 统一异常
 from ticketpilot.agent.providers.ollama import (
     OllamaModelError,
 )
+from ticketpilot.agent.verification import EvidenceVerificationError
 
 # 导入测试需要的 Agent 数据类型
 from ticketpilot.agent.schemas import (
@@ -77,11 +83,14 @@ from ticketpilot.identity.models import (
     UserRecord,
 )
 
+# 测试三种登录角色对应的知识文档权限。
+from ticketpilot.identity.types import UserRole
+
 # MagicMock 用来模拟 Embedding Provider。
 from unittest.mock import MagicMock
 
 # 导入真正的 Embedding Provider 依赖工厂。
-from ticketpilot.knowledge.dependencies import (
+from ticketpilot.knowledge.api.dependencies import (
     get_embedding_provider,
 )
 
@@ -99,12 +108,13 @@ from ticketpilot.agent.tools import (
 )
 
 # 导入知识来源枚举。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
 )
 
 # 导入内部知识检索结果类型。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
+    MAX_RETRIEVAL_TOP_K,
     RetrievedKnowledgeChunk,
 )
 
@@ -225,6 +235,8 @@ class UnavailableAgentModel:
     def decide(
         self,
         messages: list[AgentMessage],
+        *,
+        allow_tool_calls: bool = True,
     ) -> ModelDecision:
         # 模拟 Ollama 无法连接
         raise OllamaModelError(
@@ -274,6 +286,120 @@ def test_agent_chat_returns_answer() -> None:
         model.received_messages[0][0].content
         == "你好"
     )
+
+
+# 这个测试负责验证聊天入口按登录角色传递知识检索权限。
+@pytest.mark.parametrize(
+    ("role", "expected_visibilities"),
+    [
+        ("agent", ("internal",)),
+        ("supervisor", ("internal", "restricted")),
+        ("admin", ("internal", "restricted")),
+    ],
+)
+def test_agent_chat_uses_current_user_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+    role: UserRole,
+    expected_visibilities: tuple[str, ...],
+) -> None:
+    model = FakeAgentModel(decisions=[])
+    configure_agent_dependencies(model)
+    current_user = UserRecord(
+        id=f"{role}-agent-visibility-test",
+        email=f"{role}-visibility@example.com",
+        display_name="知识权限测试用户",
+        password_hash="not-used-in-test",
+        role=role,
+        is_active=True,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    app.dependency_overrides[get_current_user] = lambda: current_user
+    run_agent_mock = MagicMock(
+        return_value=AgentRunResult(answer="测试回答", sources=()),
+    )
+    monkeypatch.setattr(agent_router, "run_agent", run_agent_mock)
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "查询知识库"},
+    )
+
+    assert response.status_code == 200
+    run_agent_mock.assert_called_once()
+    assert run_agent_mock.call_args.kwargs[
+        "allowed_visibilities"
+    ] == expected_visibilities
+
+
+# 这个测试负责验证 knowledge 模式通过 API 强制先检索知识库。
+def test_agent_chat_knowledge_mode_searches_before_answering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="管理员电话是 12345678。",
+            ),
+        ],
+    )
+    configure_agent_dependencies(model)
+    received_calls: list[dict[str, object]] = []
+
+    def fake_retrieve_knowledge(
+        **kwargs,
+    ) -> tuple[RetrievedKnowledgeChunk, ...]:
+        received_calls.append(kwargs)
+        return ()
+
+    monkeypatch.setattr(
+        knowledge_tools,
+        "retrieve_knowledge",
+        fake_retrieve_knowledge,
+    )
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={
+            "message": "管理员的联系电话是多少？",
+            "mode": "knowledge",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": "根据当前检索结果，无法确认答案。",
+        "sources": [],
+    }
+    assert len(received_calls) == 1
+    assert received_calls[0]["question"] == "管理员的联系电话是多少？"
+    assert len(model.received_messages) == 1
+    assert [message.role for message in model.received_messages[0]] == [
+        "user",
+        "assistant",
+        "tool",
+    ]
+
+
+# 这个测试负责验证 API 会拒绝不存在的 Agent 模式。
+def test_agent_chat_rejects_unknown_mode() -> None:
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="不应该返回这个回答",
+            ),
+        ],
+    )
+    configure_agent_dependencies(model)
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "你好", "mode": "unrestricted"},
+    )
+
+    assert response.status_code == 422
+    assert model.received_messages == []
 
 
 # 验证空白问题在进入 Agent 前就被拒绝
@@ -355,9 +481,124 @@ def test_agent_chat_returns_503_when_ollama_is_unavailable() -> None:
         "detail": "AI 模型服务暂时不可用",
     }
 
+
+def test_agent_chat_returns_503_when_evidence_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """校验服务故障应报告 503，而不是说知识库没有答案。"""
+    configure_agent_dependencies(FakeAgentModel(decisions=[]))
+
+    def fake_run_agent(*_args, **_kwargs):
+        raise EvidenceVerificationError("证据校验服务暂时不可用")
+
+    monkeypatch.setattr(agent_router, "run_agent", fake_run_agent)
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "管理员邮箱是多少？", "mode": "knowledge"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "AI 模型服务暂时不可用",
+    }
+
+
+def test_agent_chat_passes_optional_verifier_to_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API 从依赖层取得校验器，再原样交给 Agent Loop。"""
+    configure_agent_dependencies(FakeAgentModel(decisions=[]))
+
+    class FakeEvidenceVerifier:
+        def verify(
+            self,
+            *,
+            question: str,
+            evidence: tuple[str, ...],
+        ) -> bool:
+            return True
+
+    verifier = FakeEvidenceVerifier()
+    app.dependency_overrides[get_evidence_verifier] = lambda: verifier
+    received: dict[str, object] = {}
+
+    def fake_run_agent(*_args, **kwargs):
+        received.update(kwargs)
+        return AgentRunResult(answer="测试回答", sources=())
+
+    monkeypatch.setattr(agent_router, "run_agent", fake_run_agent)
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "保修从何时起算？", "mode": "knowledge"},
+    )
+
+    assert response.status_code == 200
+    assert received["evidence_verifier"] is verifier
+
+
+def test_agent_chat_rejects_unverified_citation() -> None:
+    """模型编造片段 ID 时，API 不返回假的来源。"""
+
+    configure_agent_dependencies(
+        FakeAgentModel(
+            decisions=[
+                FinalAnswerDecision(
+                    kind="final_answer",
+                    answer="请联系管理员。",
+                    cited_chunk_ids=["not-retrieved"],
+                ),
+            ]
+        )
+    )
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "如何重置密码？"},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Agent 服务暂时不可用"}
+
+
+def test_agent_chat_abstains_when_model_quote_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """模型引句不属于检索原文时，用户只收到安全拒答。"""
+
+    configure_agent_dependencies(FakeAgentModel(decisions=[]))
+
+    def fake_run_agent(*args, **kwargs):
+        raise InvalidAgentEvidenceError("证据引句不在检索原文中")
+
+    monkeypatch.setattr(agent_router, "run_agent", fake_run_agent)
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"message": "管理员邮箱是多少？", "mode": "knowledge"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": "根据当前检索结果，无法确认答案。",
+        "sources": [],
+    }
+
+
 # 这个测试负责验证 HTTP 请求能够走完整知识工具流程。
+@pytest.mark.parametrize(
+    ("source_type", "source_uri", "page_numbers"),
+    [
+        (KnowledgeSourceType.MANUAL, None, ()),
+        (KnowledgeSourceType.FILE, "guide.pdf", (2, 4)),
+    ],
+)
 def test_agent_chat_uses_knowledge_search_tool(
     monkeypatch: pytest.MonkeyPatch,
+    source_type: KnowledgeSourceType,
+    source_uri: str | None,
+    page_numbers: tuple[int, ...],
 ) -> None:
     # 模型第一次决定调用知识检索工具。
     tool_decision = ToolCallDecision(
@@ -379,6 +620,11 @@ def test_agent_chat_uses_knowledge_search_tool(
             "可以通过注册邮箱重置密码。"
             "来源：密码重置说明。"
         ),
+        cited_chunk_ids=["chunk-001"],
+        evidence=[
+            {"chunk_id": "chunk-001", "quote": "通过注册邮箱重置密码"},
+        ],
+        evidence_is_sufficient=True,
     )
 
     model = FakeAgentModel(
@@ -422,16 +668,15 @@ def test_agent_chat_uses_knowledge_search_tool(
                 document_id="document-001",
                 document_title="密码重置说明",
                 document_version=1,
-                source_type=(
-                    KnowledgeSourceType.MANUAL
-                ),
-                source_uri=None,
+                source_type=source_type,
+                source_uri=source_uri,
                 chunk_index=0,
                 content=(
                     "用户可以通过注册邮箱重置密码。"
                 ),
                 start_offset=0,
                 end_offset=17,
+                page_numbers=page_numbers,
                 cosine_distance=0.08,
             ),
         )
@@ -455,19 +700,17 @@ def test_agent_chat_uses_knowledge_search_tool(
     assert response.status_code == 200
 
     assert response.json() == {
-        "answer": (
-            "可以通过注册邮箱重置密码。"
-            "来源：密码重置说明。"
-        ),
+        "answer": "根据知识库原文：\n通过注册邮箱重置密码",
         "sources": [
             {
                 "chunk_id": "chunk-001",
                 "document_id": "document-001",
                 "document_title": "密码重置说明",
                 "document_version": 1,
-                "source_type": "manual",
-                "source_uri": None,
+                "source_type": source_type.value,
+                "source_uri": source_uri,
                 "chunk_index": 0,
+                "page_numbers": list(page_numbers),
                 "similarity": pytest.approx(0.92),
             },
         ],
@@ -484,7 +727,8 @@ def test_agent_chat_uses_knowledge_search_tool(
         service_call["question"]
         == "如何重置密码？"
     )
-    assert service_call["top_k"] == 3
+    # Agent 工具先取较大的候选池，再重排成模型请求的 3 条。
+    assert service_call["top_k"] == MAX_RETRIEVAL_TOP_K
     assert (
         service_call["min_similarity"]
         == 0.5
@@ -521,3 +765,5 @@ def test_agent_chat_uses_knowledge_search_tool(
         tool_data["matches"][0]["similarity"]
         == pytest.approx(0.92)
     )
+    # 页码既进入模型可见的工具结果，也进入最终可信来源。
+    assert tool_data["matches"][0]["page_numbers"] == list(page_numbers)

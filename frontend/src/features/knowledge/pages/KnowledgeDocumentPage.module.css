@@ -1,0 +1,214 @@
+/*
+ * 文件职责：定义文档详情、正文、折叠区域、归档按钮和操作提示样式。
+ * 作用与配合：复用全局设计变量；字段在桌面双列、手机单列排列。
+ * 使用位置：仅由 KnowledgeDocumentPage.tsx 通过 CSS Module 导入。
+ * 边界：只控制显示；不处理权限、数据请求或正文清洗。
+ */
+.page {
+    max-width: 1100px;
+    margin: 0 auto;
+    min-width: 0;
+}
+
+.header,
+.summary,
+.actions,
+.badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.header,
+.summary {
+    justify-content: space-between;
+}
+
+.header {
+    margin-bottom: var(--space-6);
+}
+
+.description,
+.contentHint,
+.refreshNotice {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.description,
+.contentHint {
+    margin-top: var(--space-2);
+}
+
+.refreshNotice {
+    margin-bottom: var(--space-4);
+}
+
+.card {
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.summary h2 {
+    min-width: 0;
+    font-size: 1.25rem;
+    overflow-wrap: anywhere;
+}
+
+/* 刷新保留键盘焦点；不可重复操作时由 aria-disabled 和函数共同控制。 */
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-6);
+    margin: var(--space-6) 0 0;
+}
+
+.field {
+    min-width: 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.field dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.field dd {
+    margin: var(--space-1) 0 0;
+    overflow-wrap: anywhere;
+}
+
+.badge,
+.visibility {
+    display: inline-block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 999px;
+    background: #f2f4f7;
+    color: #475467;
+    font-size: var(--font-size-small);
+}
+
+.badge[data-status='ready'] {
+    background: #eaf3ee;
+    color: var(--color-primary);
+}
+
+.badge[data-status='processing'] {
+    background: #eff8ff;
+    color: #1849a9;
+}
+
+.badge[data-status='failed'] {
+    background: #fef3f2;
+    color: var(--color-danger);
+}
+
+.visibility[data-visibility='restricted'] {
+    background: #fff5e6;
+    color: #854600;
+}
+
+.contentSection,
+.disclosure {
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--color-border);
+}
+
+.contentSection h2 {
+    font-size: 1.125rem;
+}
+
+/* pre-wrap 保留正文中的换行和连续空格，同时允许长行自动换行。 */
+.documentText {
+    margin-top: var(--space-4);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.85;
+}
+
+/* 保留浏览器的展开箭头和键盘操作，操作区至少 44px 高。 */
+.disclosure summary {
+    min-height: 44px;
+    padding: var(--space-2) 0;
+    color: var(--color-primary);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.disclosure summary:hover {
+    color: var(--color-primary-hover);
+}
+
+.error .button {
+    margin-top: var(--space-4);
+}
+
+/* 归档按钮沿用统一尺寸，以文字和边框颜色标记管理操作。 */
+.archiveButton {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+
+.archiveButton:hover:not([aria-disabled='true']) {
+    background: #fef3f2;
+}
+
+/* 成功和失败提示都用中性样式，具体结果由文字明确说明。 */
+.operationNotice {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: var(--space-4);
+    }
+
+    .fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 恢复按钮使用主色，尺寸和焦点样式沿用公共按钮。 */
+.restoreButton {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: white;
+}
+
+.restoreButton:hover:not([aria-disabled='true']) {
+    background: var(--color-primary-hover);
+}

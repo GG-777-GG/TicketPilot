@@ -3,12 +3,25 @@ __pycache__/
 *.py[cod]
 .idea/
 .env
+# 独立Compose演示环境的本机随机凭据，不提交到Git。
+/.env.demo
+# 演示登录账号的本机随机密码，与数据库/JWT运行配置分开保存。
+/.env.demo.accounts
 data/tickets.json
 data/*.db
 data/*.db-journal
+# 本地工作流检查点及 SQLite 辅助文件，不提交运行数据。
+/data/*.sqlite
+/data/*.sqlite-journal
+/data/*.sqlite-wal
+/data/*.sqlite-shm
 .pytest_cache/
 
 # 本地学习文档和 PPT 的构建缓存
 .codex-ppt-build/
 .codex-ppt-finalizer/
 output/
+# 异步入库保存的用户原始文件，不提交到代码仓库。
+/data/knowledge_uploads/
+# 本机测试数据库、检查点、渲染结果等临时文件。
+/tmp/

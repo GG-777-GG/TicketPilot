@@ -27,21 +27,24 @@ from hashlib import sha256
 import pytest
 
 # 导入切块器、异常和默认切块函数。
-from ticketpilot.knowledge.chunking import (
+from ticketpilot.knowledge.domain.chunking import (
     DocumentChunkingError,
     chunk_document,
 )
 
 # 导入清洗后的文档对象和来源类型。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     CleanedDocument,
     KnowledgeSourceType,
+    PageSpan,
 )
 
 
 # 创建测试专用的 CleanedDocument。
 def build_cleaned_document(
     content: str,
+    *,
+    page_spans: tuple[PageSpan, ...] = (),
 ) -> CleanedDocument:
     # 这里直接构造清洗结果，
     # 让切块测试不依赖 cleaning.py 的实现。
@@ -55,6 +58,7 @@ def build_cleaned_document(
         source_uri=None,
         content_hash="test-document-hash",
         cleaner_version="test-cleaner",
+        page_spans=page_spans,
     )
 
 
@@ -99,6 +103,70 @@ def test_short_document_creates_one_chunk() -> None:
     assert chunk.character_count == len(
         content
     )
+    assert chunk.page_numbers == ()
+
+
+def test_chunk_document_records_single_page_number() -> None:
+    """片段只覆盖一页时，只记录该页的 PDF 页码。"""
+
+    document = build_cleaned_document(
+        "ABC",
+        page_spans=(PageSpan(page_number=3, start_offset=0, end_offset=3),),
+    )
+
+    chunks = chunk_document(
+        document,
+        max_characters=10,
+        overlap_characters=0,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].content == "ABC"
+    assert chunks[0].page_numbers == (3,)
+
+
+def test_chunk_document_records_both_pages_when_chunk_crosses_boundary() -> None:
+    """跨页片段必须同时标注两页，不能误标成单页。"""
+
+    document = build_cleaned_document(
+        "ABC\n\nDEF",
+        page_spans=(
+            PageSpan(page_number=1, start_offset=0, end_offset=3),
+            PageSpan(page_number=2, start_offset=5, end_offset=8),
+        ),
+    )
+
+    chunks = chunk_document(
+        document,
+        max_characters=8,
+        overlap_characters=0,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].content == "ABC\n\nDEF"
+    assert chunks[0].page_numbers == (1, 2)
+
+
+def test_chunk_document_does_not_include_page_at_end_boundary() -> None:
+    """片段只碰到下一页边界而未覆盖其文字时，不标下一页。"""
+
+    document = build_cleaned_document(
+        "ABC\n\nDEF",
+        page_spans=(
+            PageSpan(page_number=1, start_offset=0, end_offset=3),
+            PageSpan(page_number=2, start_offset=5, end_offset=8),
+        ),
+    )
+
+    chunks = chunk_document(
+        document,
+        max_characters=3,
+        overlap_characters=0,
+    )
+
+    assert chunks[0].content == "ABC"
+    assert chunks[0].page_numbers == (1,)
+    assert all(chunk.page_numbers == (2,) for chunk in chunks[1:])
 
 
 # 验证长文档会生成多个具有重叠内容的片段。

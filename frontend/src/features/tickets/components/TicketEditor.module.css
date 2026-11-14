@@ -1,0 +1,56 @@
+/*
+ * 文件职责：共享工单状态和处理人编辑区的布局、控件与按钮样式。
+ * 作用与配合：统一输入框、选择框及等待状态的外观。
+ * 使用位置：由 TicketStatusEditor 和 TicketAssigneeEditor 导入。
+ * 边界：只负责样式，不处理权限、草稿或请求。
+ */
+.editor {
+    margin-top: var(--space-6);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.editor h2 {
+    font-size: 1.125rem;
+}
+
+.hint {
+    margin: var(--space-2) 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.control {
+    display: block;
+    width: 100%;
+    max-width: 24rem;
+    min-height: 44px;
+    margin-top: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+}
+
+.button {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+}
+
+.button[aria-disabled='true'],
+.control:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}

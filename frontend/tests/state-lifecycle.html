@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="UTF-8"><title>状态生命周期回归</title></head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // 模块加载失败也报告给运行器，避免只剩超时提示。
+      const reportFailure = window.fetch.bind(window)
+      window.addEventListener('error', event => {
+        reportFailure('/__state_lifecycle_result', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify([{name: '浏览器执行异常', passed: false, error: event.message}]),
+        })
+      })
+    </script>
+    <script type="module" src="./state-lifecycle.jsx"></script>
+  </body>
+</html>

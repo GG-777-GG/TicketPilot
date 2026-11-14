@@ -1,0 +1,82 @@
+/*
+ * 文件职责：定义历史版本恢复区域、确认信息和操作按钮的样式。
+ * 作用与配合：复用全站颜色、间距和圆角变量。
+ * 使用位置：由 KnowledgeDocumentVersionRestorePanel.tsx 导入。
+ * 边界：只负责显示，不控制请求、权限或恢复结果。
+ */
+
+.panel {
+    margin-top: var(--space-6);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-background);
+    overflow-wrap: anywhere;
+}
+
+.panel h2 {
+    margin: 0;
+    font-size: 1.125rem;
+}
+
+.muted {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+    margin: var(--space-2) 0 var(--space-4);
+}
+
+.confirmation {
+    padding: var(--space-3) var(--space-4);
+    border-left: 3px solid var(--color-primary);
+    background: var(--color-surface);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+}
+
+.button,
+.primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+    background: var(--color-background);
+}
+
+.primary {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: white;
+}
+
+.primary:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+    .actions > * {
+        flex: 1 1 auto;
+    }
+}

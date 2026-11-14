@@ -70,8 +70,10 @@ def create_tables(
 ) -> None:
     # 导入全部业务模块的 ORM 模型。
     # 导入时，模型类会登记到同一个 Base.metadata。
+    import ticketpilot.approvals.models
+    import ticketpilot.audit.models
     import ticketpilot.identity.models
-    import ticketpilot.knowledge.models
+    import ticketpilot.knowledge.persistence.models
     import ticketpilot.tickets.models
     Base.metadata.create_all(
         bind=database_engine,

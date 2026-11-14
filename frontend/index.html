@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  文件职责：提供浏览器加载前端应用的 HTML 页面骨架。
+  作用与配合：设置语言、标题、图标和视口，提供 root 容器并加载 src/main.tsx。
+  使用位置：作为 Vite 开发服务和生产构建的 HTML 入口。
+  边界：具体页面由 React 渲染，此文件不验证身份或发送业务请求。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   <title>TicketPilot · 知识工作台</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

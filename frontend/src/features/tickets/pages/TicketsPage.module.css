@@ -1,0 +1,150 @@
+/*
+ * 文件职责：定义工单列表卡片、状态、分页与窄屏布局。
+ * 作用与配合：复用全站颜色、间距和圆角变量。
+ * 使用位置：由 TicketsPage.tsx 通过 CSS Module 导入。
+ * 边界：只负责样式，不筛选数据或改变工单状态。
+ */
+.header,
+.pagination,
+.actions,
+.badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.header,
+.pagination {
+    justify-content: space-between;
+}
+
+.header {
+    margin-bottom: var(--space-6);
+}
+
+.panel,
+.card {
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.list {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.subject {
+    font-size: 1.125rem;
+}
+
+.muted,
+.fields dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.badges {
+    margin-top: var(--space-3);
+}
+
+.badge {
+    padding: var(--space-1) var(--space-2);
+    border-radius: 999px;
+    background: #f2f4f7;
+    color: #475467;
+    font-size: var(--font-size-small);
+}
+
+.badge[data-status='in_progress'] {
+    background: #eff8ff;
+    color: #1849a9;
+}
+
+.badge[data-status='resolved'] {
+    background: #eaf3ee;
+    color: var(--color-primary);
+}
+
+.badge[data-priority='high'] {
+    background: #fff5e6;
+    color: #854600;
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin: var(--space-4) 0 0;
+}
+
+.fields dd {
+    margin: var(--space-1) 0 0;
+}
+
+.pagination {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.button {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.error {
+    margin-bottom: var(--space-3);
+    color: var(--color-danger);
+}
+
+@media (max-width: 600px) {
+    .fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* 工单标题同时作为详情入口。 */
+.ticketLink {
+    color: var(--color-primary);
+    text-underline-offset: 3px;
+}
+.ticketLink:hover {
+    color: var(--color-primary-hover);
+}
+
+/* 列表页进入创建页面的主要操作入口。 */
+.createLink {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: white;
+    text-decoration: none;
+}
+
+.createLink:hover {
+    background: var(--color-primary-hover);
+}

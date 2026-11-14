@@ -19,7 +19,9 @@ from ticketpilot.core.database import Base
 from ticketpilot.identity.models import UserRecord
 
 # 导入各业务模块 ORM，确保所有表都登记到 Base.metadata。
-import ticketpilot.knowledge.models  # noqa: F401, E402
+import ticketpilot.approvals.models  # noqa: F401, E402
+import ticketpilot.audit.models  # noqa: F401, E402
+import ticketpilot.knowledge.persistence.models  # noqa: F401, E402
 import ticketpilot.tickets.models  # noqa: F401, E402
 
 

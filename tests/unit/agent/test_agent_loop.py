@@ -215,6 +215,8 @@ def test_run_agent_calls_tool_then_returns_answer(
             embedding_provider=(
                 embedding_provider
             ),
+            # 主管的检索范围必须传进本次 Agent 运行。
+            allowed_visibilities=("internal", "restricted"),
         )
 
     # 应该返回模型第二次给出的最终回答
@@ -233,6 +235,12 @@ def test_run_agent_calls_tool_then_returns_answer(
     assert (
             received_contexts[0].embedding_provider
             is embedding_provider
+    )
+
+    # 工具上下文必须保留 Loop 收到的权限范围。
+    assert received_contexts[0].allowed_visibilities == (
+        "internal",
+        "restricted",
     )
 
     # 工具名称应该正确
@@ -379,13 +387,16 @@ def test_run_agent_passes_knowledge_result_back_to_model(
         ),
     )
 
-    # 模型读取工具结果后生成最终回答。
+    # 模型虽然找到了原文，却把答案改写错了。
     final_decision = FinalAnswerDecision(
         kind="final_answer",
-        answer=(
-            "可以通过注册邮箱重置密码。"
-            "来源：密码重置说明。"
-        ),
+        answer="只能联系管理员重置密码。",
+        cited_chunk_ids=["chunk-001"],
+        evidence=[
+            {"chunk_id": "chunk-001", "quote": "用户可以"},
+            {"chunk_id": "chunk-001", "quote": "通过注册邮箱重置密码"},
+        ],
+        evidence_is_sufficient=True,
     )
 
     # Fake Model 会依次返回工具调用和最终回答。
@@ -466,10 +477,11 @@ def test_run_agent_passes_knowledge_result_back_to_model(
             ),
         )
 
-    # Agent 应该返回模型读取知识后的最终回答。
+    # 知识库回答应使用已验证的引句，不采用模型的错误改写。
     assert result.answer == (
-        "可以通过注册邮箱重置密码。"
-        "来源：密码重置说明。"
+        "根据知识库原文：\n"
+        "用户可以\n"
+        "通过注册邮箱重置密码"
     )
 
     # 来源必须由真实工具结果生成。
@@ -533,3 +545,566 @@ def test_run_agent_passes_knowledge_result_back_to_model(
         tool_data["matches"][0]["similarity"]
         == pytest.approx(0.92)
     )
+
+
+# 这个测试负责验证 knowledge 模式先检索，再让模型依据结果回答。
+def test_run_agent_forces_knowledge_search_before_model_decides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "维修部分保修多久？"
+    content = "按送货日起，非人为故障保修叁个月。"
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="维修部分保修三个月。",
+                cited_chunk_ids=["contract-chunk-001"],
+                evidence=[{"chunk_id": "contract-chunk-001", "quote": content}],
+                evidence_is_sufficient=True,
+            ),
+        ],
+    )
+    tool_result = SearchKnowledgeToolResult(
+        found=True,
+        message="找到合同条款",
+        query=question,
+        matches=[
+            KnowledgeToolMatch(
+                chunk_id="contract-chunk-001",
+                document_id="contract-001",
+                document_title="维修合同",
+                document_version=1,
+                source_type="file",
+                source_uri="contract.docx",
+                chunk_index=0,
+                content=content,
+                start_offset=0,
+                end_offset=len(content),
+                similarity=0.8,
+            ),
+        ],
+    )
+    requests: list[ToolRequest] = []
+
+    def fake_dispatch_tool(
+        _context: agent_loop.agent_dispatcher.AgentToolContext,
+        request: ToolRequest,
+    ) -> SearchKnowledgeToolResult:
+        requests.append(request)
+        return tool_result
+
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        fake_dispatch_tool,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            question,
+            embedding_provider=build_test_embedding_provider(),
+            require_knowledge_search=True,
+        )
+
+    assert len(requests) == 1
+    assert requests[0].name == "search_knowledge"
+    assert requests[0].arguments == {"query": question}
+    assert len(model.received_messages) == 1
+    assert model.received_allow_tool_calls == [False]
+    assert [message.role for message in model.received_messages[0]] == [
+        "user",
+        "assistant",
+        "tool",
+    ]
+    assert result.answer == f"根据知识库原文：\n{content}"
+    assert [source.chunk_id for source in result.sources] == [
+        "contract-chunk-001",
+    ]
+
+
+def test_knowledge_mode_does_not_execute_second_tool_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """即使模型要求再次检索，knowledge 模式也只执行第一次检索。"""
+
+    question = "密码重置应该联系谁？"
+    model = FakeAgentModel(
+        decisions=[
+            ToolCallDecision(
+                kind="tool_call",
+                tool_request=ToolRequest(
+                    name="search_knowledge",
+                    arguments={"query": question},
+                ),
+            ),
+        ],
+    )
+    requests: list[ToolRequest] = []
+
+    def fake_dispatch_tool(
+        _context: agent_loop.agent_dispatcher.AgentToolContext,
+        request: ToolRequest,
+    ) -> SearchKnowledgeToolResult:
+        requests.append(request)
+        return SearchKnowledgeToolResult(
+            found=False,
+            message="没有找到相关知识",
+            query=question,
+            matches=[],
+        )
+
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        fake_dispatch_tool,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            question,
+            embedding_provider=build_test_embedding_provider(),
+            require_knowledge_search=True,
+        )
+
+    assert len(requests) == 1
+    assert model.received_allow_tool_calls == [False]
+    assert result.answer == "根据当前检索结果，无法确认答案。"
+    assert result.sources == ()
+
+
+# 这个测试负责验证强制检索无结果时也不会采信模型编造的答案。
+def test_run_agent_forced_search_without_match_uses_safe_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "管理员的联系电话是多少？"
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="管理员电话是 12345678。",
+                cited_chunk_ids=[],
+                evidence=[],
+            ),
+        ],
+    )
+    requests: list[ToolRequest] = []
+
+    def fake_dispatch_tool(
+        _context: agent_loop.agent_dispatcher.AgentToolContext,
+        request: ToolRequest,
+    ) -> SearchKnowledgeToolResult:
+        requests.append(request)
+        return SearchKnowledgeToolResult(
+            found=False,
+            message="没有找到相关知识",
+            query=question,
+            matches=[],
+        )
+
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        fake_dispatch_tool,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            question,
+            embedding_provider=build_test_embedding_provider(),
+            require_knowledge_search=True,
+        )
+
+    assert len(requests) == 1
+    assert requests[0].name == "search_knowledge"
+    assert len(model.received_messages) == 1
+    assert result.answer == "根据当前检索结果，无法确认答案。"
+    assert result.sources == ()
+
+
+# 这个测试负责确认查过知识库却没有原文引用时，Agent 不会返回模型编造的答案。
+@pytest.mark.parametrize(
+    "found",
+    [True, False],
+    ids=["found-but-no-citation", "no-match-no-citation"],
+)
+def test_run_agent_uses_safe_answer_when_search_has_no_citation(
+    monkeypatch: pytest.MonkeyPatch,
+    found: bool,
+) -> None:
+    model = FakeAgentModel(
+        decisions=[
+            ToolCallDecision(
+                kind="tool_call",
+                tool_request=ToolRequest(
+                    name="search_knowledge",
+                    arguments={"query": "维修部分保修多久？"},
+                ),
+            ),
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="维修部分保修十年。",
+                cited_chunk_ids=[],
+                evidence=[],
+            ),
+        ],
+    )
+    matches = (
+        [
+            KnowledgeToolMatch(
+                chunk_id="contract-chunk-001",
+                document_id="contract-001",
+                document_title="维修合同",
+                document_version=1,
+                source_type="file",
+                source_uri="contract.docx",
+                chunk_index=0,
+                content="按送货日起，非人为故障保修叁个月。",
+                start_offset=0,
+                end_offset=19,
+                similarity=0.8,
+            ),
+        ]
+        if found
+        else []
+    )
+    tool_result = SearchKnowledgeToolResult(
+        found=found,
+        message="找到合同条款" if found else "没有找到相关知识",
+        query="维修部分保修多久？",
+        matches=matches,
+    )
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        lambda _context, _request: tool_result,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            "维修部分保修多久？",
+            embedding_provider=build_test_embedding_provider(),
+        )
+
+    assert result.answer == "根据当前检索结果，无法确认答案。"
+    assert result.sources == ()
+
+
+# 这个测试负责验证引句虽真实但不足以回答问题时必须拒答。
+def test_run_agent_abstains_when_quote_does_not_answer_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "管理员的联系电话是多少？"
+    quote = "TicketPilot password reset: contact administrator."
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="管理员联系电话未在文档中写出。",
+                cited_chunk_ids=["pdf-chunk-001"],
+                evidence=[{"chunk_id": "pdf-chunk-001", "quote": quote}],
+                evidence_is_sufficient=False,
+            ),
+        ],
+    )
+    tool_result = SearchKnowledgeToolResult(
+        found=True,
+        message="找到一条相关知识",
+        query=question,
+        matches=[
+            KnowledgeToolMatch(
+                chunk_id="pdf-chunk-001",
+                document_id="pdf-document-001",
+                document_title="密码重置 PDF",
+                document_version=1,
+                source_type="file",
+                source_uri="pdf-test.pdf",
+                chunk_index=0,
+                content=quote,
+                start_offset=0,
+                end_offset=len(quote),
+                similarity=0.56,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        lambda _context, _request: tool_result,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            question,
+            embedding_provider=build_test_embedding_provider(),
+            require_knowledge_search=True,
+        )
+
+    assert result.answer == "根据当前检索结果，无法确认答案。"
+    assert result.sources == ()
+
+
+@pytest.mark.parametrize(
+    ("cited_chunk_ids", "expected_source_ids"),
+    [
+        (["chunk-002"], ["chunk-002"]),
+        ([], []),
+        (["chunk-002", "chunk-002"], ["chunk-002"]),
+    ],
+)
+def test_run_agent_returns_only_cited_knowledge_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    cited_chunk_ids: list[str],
+    expected_source_ids: list[str],
+) -> None:
+    """检索命中不等于引用；重复声明也不能产生重复来源。"""
+
+    model = FakeAgentModel(
+        decisions=[
+            ToolCallDecision(
+                kind="tool_call",
+                tool_request=ToolRequest(
+                    name="search_knowledge",
+                    arguments={"query": "密码重置"},
+                ),
+            ),
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="请联系管理员。",
+                cited_chunk_ids=cited_chunk_ids,
+                evidence=(
+                    [{"chunk_id": "chunk-002", "quote": "密码重置说明 2"}]
+                    if cited_chunk_ids
+                    else []
+                ),
+                evidence_is_sufficient=bool(cited_chunk_ids),
+            ),
+        ]
+    )
+    matches = [
+        KnowledgeToolMatch(
+            chunk_id=f"chunk-00{index}",
+            document_id=f"document-00{index}",
+            document_title=f"文档 {index}",
+            document_version=1,
+            source_type="file",
+            source_uri=f"guide-{index}.pdf",
+            chunk_index=0,
+            content=f"密码重置说明 {index}",
+            start_offset=0,
+            end_offset=8,
+            # 两个片段的页码不同，验证只引用被选中的来源。
+            page_numbers=[index, index + 1],
+            similarity=0.9 - index / 10,
+        )
+        for index in (1, 2)
+    ]
+    tool_result = SearchKnowledgeToolResult(
+        found=True,
+        message="找到两条知识",
+        query="密码重置",
+        matches=matches,
+    )
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        lambda _context, _request: tool_result,
+    )
+
+    with Session() as session:
+        result = agent_loop.run_agent(
+            session,
+            model,
+            "如何重置密码？",
+            embedding_provider=build_test_embedding_provider(),
+        )
+
+    assert [source.chunk_id for source in result.sources] == expected_source_ids
+    assert [source.page_numbers for source in result.sources] == (
+        [[2, 3]] if expected_source_ids else []
+    )
+
+
+def test_run_agent_rejects_citation_not_returned_by_tool() -> None:
+    """模型不能凭空生成知识片段 ID。"""
+
+    model = FakeAgentModel(
+        decisions=[
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="请联系管理员。",
+                cited_chunk_ids=["invented-chunk"],
+            ),
+        ]
+    )
+
+    with Session() as session:
+        with pytest.raises(
+            agent_loop.InvalidAgentCitationError,
+            match="未检索到",
+        ):
+            agent_loop.run_agent(
+                session,
+                model,
+                "如何重置密码？",
+                embedding_provider=build_test_embedding_provider(),
+            )
+
+
+# 验证 Agent 不接受缺失、伪造或指向未引用片段的原文证据。
+@pytest.mark.parametrize(
+    ("cited_chunk_ids", "evidence", "expected_message"),
+    [
+        (["chunk-001"], [], "缺少原文证据"),
+        (
+            ["chunk-001"],
+            [{"chunk_id": "chunk-001", "quote": "从维修日期起算"}],
+            "不在检索原文中",
+        ),
+        (
+            [],
+            [{"chunk_id": "chunk-001", "quote": "按送货日起"}],
+            "没有被引用",
+        ),
+        (
+            ["chunk-001"],
+            [{"chunk_id": "chunk-002", "quote": "按送货日起"}],
+            "没有被引用",
+        ),
+    ],
+)
+def test_run_agent_rejects_invalid_answer_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    cited_chunk_ids: list[str],
+    evidence: list[dict[str, str]],
+    expected_message: str,
+) -> None:
+    model = FakeAgentModel(
+        decisions=[
+            ToolCallDecision(
+                kind="tool_call",
+                tool_request=ToolRequest(
+                    name="search_knowledge",
+                    arguments={"query": "保修从何时起算？"},
+                ),
+            ),
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="维修部分保修三个月。",
+                cited_chunk_ids=cited_chunk_ids,
+                evidence=evidence,
+                evidence_is_sufficient=True,
+            ),
+        ]
+    )
+    tool_result = SearchKnowledgeToolResult(
+        found=True,
+        message="找到一条合同条款",
+        query="保修从何时起算？",
+        matches=[
+            KnowledgeToolMatch(
+                chunk_id="chunk-001",
+                document_id="document-001",
+                document_title="维修合同",
+                document_version=4,
+                source_type="file",
+                source_uri="contract.docx",
+                chunk_index=0,
+                content="按送货日起，非人为故障保修叁个月。",
+                start_offset=0,
+                end_offset=20,
+                similarity=0.8,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        lambda _context, _request: tool_result,
+    )
+
+    with Session() as session:
+        with pytest.raises(
+            agent_loop.InvalidAgentEvidenceError,
+            match=expected_message,
+        ):
+            agent_loop.run_agent(
+                session,
+                model,
+                "保修从何时起算？",
+                embedding_provider=build_test_embedding_provider(),
+            )
+
+
+# 验证多条真实引句拼接后超过接口限制时会安全拒绝。
+def test_run_agent_rejects_overlong_extractive_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    long_quote = "a" * 2000
+    model = FakeAgentModel(
+        decisions=[
+            ToolCallDecision(
+                kind="tool_call",
+                tool_request=ToolRequest(
+                    name="search_knowledge",
+                    arguments={"query": "查询长文档"},
+                ),
+            ),
+            FinalAnswerDecision(
+                kind="final_answer",
+                answer="模型的简短回答",
+                cited_chunk_ids=["chunk-001"],
+                evidence=[
+                    {"chunk_id": "chunk-001", "quote": long_quote}
+                    for _ in range(5)
+                ],
+                evidence_is_sufficient=True,
+            ),
+        ]
+    )
+    tool_result = SearchKnowledgeToolResult(
+        found=True,
+        message="找到一条知识",
+        query="查询长文档",
+        matches=[
+            KnowledgeToolMatch(
+                chunk_id="chunk-001",
+                document_id="document-001",
+                document_title="长文档",
+                document_version=1,
+                source_type="manual",
+                source_uri=None,
+                chunk_index=0,
+                content=long_quote,
+                start_offset=0,
+                end_offset=2000,
+                similarity=0.9,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        agent_loop.agent_dispatcher,
+        "dispatch_tool",
+        lambda _context, _request: tool_result,
+    )
+
+    with Session() as session:
+        with pytest.raises(
+            agent_loop.InvalidAgentEvidenceError,
+            match="原文证据过长",
+        ):
+            agent_loop.run_agent(
+                session,
+                model,
+                "查询长文档",
+                embedding_provider=build_test_embedding_provider(),
+            )

@@ -1,0 +1,112 @@
+/*
+ * 文件职责：设置登录布局的品牌区、表单容器和窄屏适配样式。
+ * 作用与配合：使用共享设计变量，让 AuthLayout 在桌面分栏、在手机上下排列。
+ * 使用位置：仅由 AuthLayout.tsx 通过 CSS Module 导入。
+ * 边界：不控制输入框的业务状态，也不决定登录是否成功。
+ */
+/* 桌面端：左侧占 44%，右侧占 56%。 */
+.shell {
+    display: grid;
+    grid-template-columns: minmax(0, 44fr) minmax(0, 56fr);
+    min-height: 100svh;
+}
+
+/* 品牌介绍区，内部内容纵向排列。 */
+.brandPanel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    padding: clamp(24px, 5vw, 72px);
+    background: var(--color-sidebar);
+    color: white;
+}
+
+.brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+/* 上下自动分配空白，让介绍内容位于品牌区中间。 */
+.message {
+    margin-block: auto;
+    padding-block: var(--space-8);
+}
+
+.eyebrow {
+    font-size: var(--font-size-small);
+    color: #c2d4cb;
+    letter-spacing: 0.08em;
+}
+
+.headline {
+    margin-block: var(--space-4);
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    line-height: 1.3;
+    font-weight: 600;
+}
+
+.description {
+    color: #c2d4cb;
+    line-height: 1.8;
+}
+
+.caption {
+    font-size: var(--font-size-small);
+    color: #c2d4cb;
+}
+
+/* 让表单容器在右侧区域水平、垂直居中。 */
+.main {
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    padding: var(--space-8);
+}
+
+/* 限制表单宽度，避免大屏幕上输入框过长。 */
+.formContainer {
+    width: 100%;
+    max-width: 420px;
+    padding: var(--space-8);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+}
+
+/* 窄屏改成上下布局，顶部按实际内容决定高度。 */
+@media (max-width: 768px) {
+    .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+
+    .brandPanel,
+    .main,
+    .formContainer {
+        padding: var(--space-6);
+    }
+
+    .brandPanel {
+        gap: var(--space-4);
+    }
+
+    .message {
+        margin-block: 0;
+        padding-block: 0;
+    }
+
+    .headline {
+        font-size: 1.75rem;
+        margin-bottom: 0;
+    }
+
+    /* 手机端标题放在一行，减少顶部占用。 */
+    .headline br {
+        display: none;
+    }
+
+    .description,
+    .caption {
+        display: none;
+    }
+}

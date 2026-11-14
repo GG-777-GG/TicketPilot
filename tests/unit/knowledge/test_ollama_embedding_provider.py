@@ -35,7 +35,7 @@ from ollama import (
 )
 
 # 导入数据库规定的向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 

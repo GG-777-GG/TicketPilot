@@ -1,0 +1,45 @@
+/*
+ * 文件职责：设置入库页面状态筛选区域、标签和下拉框的样式。
+ * 作用与配合：复用全局设计变量，保证控件尺寸和窄屏显示。
+ * 使用位置：由 IngestionPage.tsx 通过 CSS Module 导入。
+ * 边界：只负责外观，不保存筛选状态或请求后端数据。
+ */
+
+/* 筛选条件横向排列，空间不足时允许换行。 */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+/* 标签与下拉框纵向排列，窄屏不超出父容器。 */
+.filterField {
+  display: grid;
+  gap: var(--space-2);
+  width: 240px;
+  max-width: 100%;
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+}
+
+/* 使用浏览器原生下拉框，保留键盘操作支持。 */
+.select {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* 取消结果独立展示，手机上允许长标题换行。 */
+.feedback {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}

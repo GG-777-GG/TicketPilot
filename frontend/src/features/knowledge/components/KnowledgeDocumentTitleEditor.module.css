@@ -1,0 +1,82 @@
+/*
+ * 文件职责：定义标题编辑区域、输入框和按钮样式。
+ * 作用与配合：复用全站设计变量，显示只读和错误状态。
+ * 使用位置：由 KnowledgeDocumentTitleEditor.tsx 导入。
+ * 边界：只负责显示，不执行标题保存或版本检查。
+ */
+
+.panel {
+    margin-bottom: var(--space-6);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-background);
+    overflow-wrap: anywhere;
+}
+
+.panel h2 {
+    margin: 0;
+    font-size: 1.125rem;
+}
+
+.hint {
+    margin: var(--space-2) 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.input {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.input:read-only {
+    background: var(--color-background);
+}
+
+.input[aria-invalid='true'] {
+    border-color: var(--color-danger);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+}
+
+.button,
+.primary {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.primary {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: white;
+}
+
+.primary:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}

@@ -17,6 +17,9 @@ class AgentModel(Protocol):
 
         # 接收完整的对话消息历史
         messages: list[AgentMessage],
+        *,
+        # False 表示本轮必须给出最终回答，不能再请求工具。
+        allow_tool_calls: bool = True,
     ) -> ModelDecision:
         # Protocol 只规定方法格式，不提供具体实现
         ...
@@ -39,6 +42,7 @@ class FakeAgentModel:
         self.received_messages: list[
             list[AgentMessage]
         ] = []
+        self.received_allow_tool_calls: list[bool] = []
 
     # 按顺序返回下一项预设决定
     def decide(
@@ -47,11 +51,14 @@ class FakeAgentModel:
 
         # 接收 Agent Loop 传入的消息历史
         messages: list[AgentMessage],
+        *,
+        allow_tool_calls: bool = True,
     ) -> ModelDecision:
         # 复制并记录本次收到的消息
         self.received_messages.append(
             messages.copy(),
         )
+        self.received_allow_tool_calls.append(allow_tool_calls)
 
         # 如果预设决定已经全部使用完
         if not self._remaining_decisions:

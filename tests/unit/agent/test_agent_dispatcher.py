@@ -227,12 +227,17 @@ def test_dispatch_tool_calls_search_knowledge(
         session: Session,
         received_provider: EmbeddingProvider,
         arguments: SearchKnowledgeToolArguments,
+        *,
+        allowed_visibilities: tuple[str, ...],
     ) -> SearchKnowledgeToolResult:
         # 必须收到上下文中的同一个 Provider。
         assert (
             received_provider
             is embedding_provider
         )
+
+        # 不能丢失当前用户的知识文档可见范围。
+        assert allowed_visibilities == ("internal", "restricted")
 
         received_arguments.append(
             arguments
@@ -266,6 +271,7 @@ def test_dispatch_tool_calls_search_knowledge(
                 embedding_provider=(
                     embedding_provider
                 ),
+                allowed_visibilities=("internal", "restricted"),
             )
         )
 

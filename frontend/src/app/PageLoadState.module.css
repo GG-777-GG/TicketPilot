@@ -1,0 +1,21 @@
+/*
+ * 文件职责：定义路由加载和错误恢复界面的基础外观。
+ * 作用与配合：复用全局变量，在布局尚未加载时也能清晰显示。
+ * 使用位置：由 PageLoadState 导入。
+ * 边界：只负责样式，不处理加载和重试。
+ */
+.panel {
+    max-width: 48rem;
+    margin: var(--space-6) auto;
+    padding: var(--space-6);
+    overflow-wrap: anywhere;
+}
+.button {
+    margin-top: var(--space-4);
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: white;
+}

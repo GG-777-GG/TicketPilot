@@ -1,0 +1,111 @@
+/*
+ * 文件职责：定义创建工单表单、提示与操作入口的样式。
+ * 作用与配合：复用全局设计变量，窄屏下切换单列。
+ * 使用位置：由 TicketCreatePage 导入。
+ * 边界：只负责显示，不校验或提交数据。
+ */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+}
+
+.panel {
+    max-width: 56rem;
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.hint {
+    margin-bottom: var(--space-4);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.fields legend {
+    margin-bottom: var(--space-4);
+    font-weight: 600;
+}
+
+.field,
+.fullField {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.fullField {
+    grid-column: 1 / -1;
+}
+
+.fields input,
+.fields select,
+.fields textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: var(--space-2);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.fields textarea {
+    resize: vertical;
+}
+
+.button {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: white;
+}
+
+.fields:disabled {
+    opacity: 0.65;
+}
+
+.link {
+    display: inline-block;
+    color: var(--color-primary);
+    text-underline-offset: 3px;
+}
+
+.error {
+    color: var(--color-danger);
+}
+
+.error,
+.result {
+    margin-top: var(--space-4);
+}
+
+.error:empty,
+.result:empty {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

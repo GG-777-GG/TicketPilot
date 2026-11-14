@@ -1,0 +1,151 @@
+# 文件职责：编排独立演示数据库、迁移、后端、前端和入库Worker。
+# 作用与配合：读取.env.demo，运行演示应用与后台任务。
+# 边界：使用独立项目和数据卷，Ollama复用宿主机服务。
+
+# 为容器、网络和数据卷提供独立的项目名前缀。
+name: ticketpilot-demo
+
+services:
+  # 数据库只在Compose网络内部提供服务。
+  database:
+    image: pgvector/pgvector:0.8.6-pg18-trixie
+
+    environment:
+      POSTGRES_DB: ticketpilot_demo
+      POSTGRES_USER: ticketpilot
+      POSTGRES_PASSWORD: ${DEMO_POSTGRES_PASSWORD:?缺少DEMO_POSTGRES_PASSWORD}
+
+    volumes:
+      - demo_postgres_data:/var/lib/postgresql
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    restart: unless-stopped
+
+  # 使用后端镜像执行一次数据库迁移。
+  migrate:
+    image: ticketpilot-backend:interview-check
+    pull_policy: never
+
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+
+    environment:
+      DATABASE_URL: "postgresql+psycopg://ticketpilot:${DEMO_POSTGRES_PASSWORD:?缺少DEMO_POSTGRES_PASSWORD}@database:5432/ticketpilot_demo"
+      JWT_SECRET_KEY: ${DEMO_JWT_SECRET_KEY:?缺少DEMO_JWT_SECRET_KEY}
+
+    depends_on:
+      database:
+        condition: service_healthy
+
+    restart: "no"
+
+  # 构建前端，并通过Nginx提供页面和接口代理。
+  frontend:
+    image: ticketpilot-frontend:interview-check
+
+    build:
+      # 构建上下文为仓库根目录，使用根目录.dockerignore。
+      context: .
+      dockerfile: frontend/Dockerfile
+
+    ports:
+      # Windows的18080端口映射到Nginx容器的80端口。
+      - "127.0.0.1:18080:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+  # 使用镜像默认CMD启动单worker后端。
+  backend:
+    image: ticketpilot-backend:interview-check
+    pull_policy: never
+
+    # 帮助回收MCP等子进程。
+    init: true
+
+    # 当前DNS/代理环境下显式使用Docker宿主机网关，不改变宿主机监听设置。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      DATABASE_URL: "postgresql+psycopg://ticketpilot:${DEMO_POSTGRES_PASSWORD:?缺少DEMO_POSTGRES_PASSWORD}@database:5432/ticketpilot_demo"
+      # API上传文件的保存目录，与Worker明确保持一致。
+      KNOWLEDGE_UPLOAD_DIRECTORY: /app/data/knowledge_uploads
+      JWT_SECRET_KEY: ${DEMO_JWT_SECRET_KEY:?缺少DEMO_JWT_SECRET_KEY}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+
+    ports:
+      - "127.0.0.1:18000:8000"
+
+    volumes:
+      - demo_app_data:/app/data
+
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+    # 从容器内部直连健康接口，禁用代理。
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+    restart: unless-stopped
+  # 后台领取并处理知识入库任务。
+  worker:
+    # 复用已经构建好的后端镜像。
+    image: ticketpilot-backend:interview-check
+    pull_policy: never
+
+    init: true
+
+    # 覆盖镜像默认的Uvicorn命令，改为启动后台任务进程。
+    command:
+      - python
+      - -m
+      - ticketpilot.knowledge.workers.worker_cli
+      - --watch
+      - --poll-interval
+      - "3"
+
+    # Worker也需要访问Windows宿主机上的Ollama。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      # 必须与API连接同一个演示数据库。
+      DATABASE_URL: "postgresql+psycopg://ticketpilot:${DEMO_POSTGRES_PASSWORD:?缺少DEMO_POSTGRES_PASSWORD}@database:5432/ticketpilot_demo"
+
+      # 向量模型仍使用宿主机上的Ollama。
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+
+      # 必须与API保存原始文件的目录一致。
+      KNOWLEDGE_UPLOAD_DIRECTORY: /app/data/knowledge_uploads
+
+    volumes:
+      # 与backend使用同一个命名卷。
+      - demo_app_data:/app/data
+
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+# Docker会按项目名前缀创建和管理这两个新数据卷。
+volumes:
+  demo_postgres_data:
+  demo_app_data:

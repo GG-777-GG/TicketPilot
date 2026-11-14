@@ -3,7 +3,7 @@ Agent 对话 HTTP 接口。
 
 业务目标：
 接收已登录用户的问题，调用 TicketPilot Agent，
-必要时让 Agent 查询工单，最后返回自然语言回答。
+必要时查询工单或创建受控关闭申请，返回自然语言回答或后端申请结果。
 
 正常业务流程：
 1. 客户端请求 POST /v1/agent/chat。
@@ -12,9 +12,9 @@ Agent 对话 HTTP 接口。
 4. DatabaseSession 创建本次请求使用的数据库 Session。
 5. AgentModelDependency 提供缓存的 OllamaModel。
 6. run_agent() 把问题发送给模型。
-7. 模型可以直接回答，也可以请求调用工单工具。
+7. 模型可以回答或调用白名单工具；申请参数须匹配原始用户明确指令。
 8. 工具通过 Repository 和 Session 查询数据库。
-9. 模型根据工具结果生成最终回答。
+9. 只读结果继续交给模型；关闭申请保存后直接返回后端生成的申请结果。
 10. 接口把回答包装成 AgentChatResponse。
 
 异常流程：
@@ -43,19 +43,27 @@ from fastapi import (
     HTTPException,
     status,
 )
+from pydantic import ValidationError
+from ticketpilot.approvals import service as approval_service
+from ticketpilot.core.config import settings
+from ticketpilot.integrations.mcp_client import McpTicketError
+from ticketpilot.observability.spans import operation_span
 
 # 导入 FastAPI 自动提供的 Agent 模型依赖
 from ticketpilot.agent.dependencies import (
     AgentModelDependency,
+    # FastAPI 自动提供可选的证据校验器。
+    EvidenceVerifierDependency,
 )
 
 # FastAPI 自动提供知识检索使用的 Embedding Provider。
-from ticketpilot.knowledge.dependencies import (
+from ticketpilot.knowledge.api.dependencies import (
     EmbeddingProviderDependency,
 )
 
 # 导入 Agent Loop 和循环次数超限异常
 from ticketpilot.agent.loop import (
+    InvalidAgentEvidenceError,
     AgentLoopLimitError,
     run_agent,
 )
@@ -63,6 +71,11 @@ from ticketpilot.agent.loop import (
 # 导入 Ollama 调用异常
 from ticketpilot.agent.providers.ollama import (
     OllamaModelError,
+)
+
+# 导入证据校验失败异常，用来区分模型故障和“没有答案”。
+from ticketpilot.agent.verification import (
+    EvidenceVerificationError,
 )
 
 # 导入 Agent 接口的请求和响应 Schema
@@ -79,6 +92,11 @@ from ticketpilot.core.dependencies import (
 # 导入当前登录用户依赖
 from ticketpilot.identity.dependencies import (
     CurrentUser,
+)
+
+# 根据已认证用户的角色确定知识检索范围。
+from ticketpilot.knowledge.domain.access import (
+    allowed_visibilities_for_role,
 )
 
 
@@ -115,28 +133,59 @@ def chat_with_agent(
 
     # FastAPI 自动取得缓存的 Embedding Provider。
     embedding_provider: EmbeddingProviderDependency,
+
+    # 从配置开关取得校验器；默认是 None。
+    evidence_verifier: EvidenceVerifierDependency,
 ) -> AgentChatResponse:
+
+    # 权限只从当前登录用户取得，不接受模型或请求自行指定。
+    allowed_visibilities = allowed_visibilities_for_role(
+        current_user.role
+    )
+
     # 捕获 Agent 执行过程中可能出现的已知错误
     try:
-        # 运行完整 Agent 循环
-        result = run_agent(
-            # 工具访问数据库时使用的 Session。
-            session,
+        # Span仅观察完整调用，不改变返回值、权限或异常转换。
+        with operation_span("agent.run"):
+            result = run_agent(
+                # 工具访问数据库时使用的 Session。
+                session,
 
-            # 负责决定是否调用工具的对话模型。
-            model,
+                # 负责决定是否调用工具的对话模型。
+                model,
 
-            # 用户提交的问题。
-            request.message,
+                # 用户提交的问题。
+                request.message,
 
-            # search_knowledge 工具生成问题向量时使用。
-            embedding_provider=(
-                embedding_provider
-            ),
-        )
+                # search_knowledge 工具生成问题向量时使用。
+                embedding_provider=embedding_provider,
 
-    # Ollama 没启动、超时或返回无效内容
-    except OllamaModelError as error:
+                # knowledge 模式要求后端先检索，auto 模式保持原有行为。
+                require_knowledge_search=(request.mode == "knowledge"),
+
+                # 把校验器交给 Agent Loop；None 表示不启用。
+                evidence_verifier=evidence_verifier,
+
+                # 传给 Agent Loop，再由工具上下文继续传递。
+                allowed_visibilities=allowed_visibilities,
+                current_user=current_user,
+                checkpoint_path=settings.approval_workflow_checkpoint_path,
+                use_mcp_tickets=True,
+            )
+
+    except McpTicketError as error:
+        raise HTTPException(status_code=503, detail="MCP工单查询服务暂时不可用") from error
+    except approval_service.ApprovalAccessError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except approval_service.ApprovalTicketNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except approval_service.ApprovalConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="模型提供的工具参数不符合要求") from error
+
+    # 对话模型或证据校验服务失败时，统一返回 HTTP 503。
+    except (OllamaModelError, EvidenceVerificationError) as error:
         raise HTTPException(
             # 503 表示依赖的模型服务暂时不可用
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -154,6 +203,13 @@ def chat_with_agent(
             # 返回稳定的业务错误信息
             detail="Agent 未能在安全限制内完成请求",
         ) from error
+
+    # 模型引句无效时，不把错误或未经证实的答案交给用户。
+    except InvalidAgentEvidenceError:
+        return AgentChatResponse(
+            answer="根据当前检索结果，无法确认答案。",
+            sources=[],
+        )
 
     # 捕获工具或 Repository 抛出的其他运行时异常
     except RuntimeError as error:

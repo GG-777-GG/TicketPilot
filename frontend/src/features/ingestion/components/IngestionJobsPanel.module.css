@@ -1,0 +1,165 @@
+/*
+ * 文件职责：定义入库任务面板、列表、状态徽标、提示文字和操作按钮的局部样式。
+ * 作用与配合：复用全局设计变量，通过 data-status 区分四种任务状态，并允许标题与操作换行。
+ * 使用位置：由 IngestionJobsPanel 组件通过 CSS Modules 引入，用于最近任务及各类查询状态。
+ * 边界：只控制视觉呈现，不判断权限、发起刷新或改变任务状态。
+ */
+
+/* 列表、加载和错误提示共用的白色面板。 */
+.panel {
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface);
+}
+
+/* 标题与操作横向排列，手机空间不足时自动换行。 */
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: 1.125rem;
+}
+
+.itemTitle {
+  font-size: 1rem;
+}
+
+/* 数量和处理次数等辅助信息。 */
+.meta {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+}
+
+/* 清除浏览器默认的列表圆点与缩进。 */
+.list {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+
+/* 默认是等待状态的灰色标签，状态仍通过文字表达。 */
+.badge {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: var(--font-size-small);
+}
+
+.badge[data-status='running'] {
+  background: #eff8ff;
+  color: #1849a9;
+}
+
+.badge[data-status='succeeded'] {
+  background: #eaf3ee;
+  color: var(--color-primary);
+}
+
+.badge[data-status='failed'] {
+  background: #fef3f2;
+  color: var(--color-danger);
+}
+
+.error {
+  margin-top: var(--space-2);
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+
+/* 保持按钮足够高，方便手机点击。 */
+.button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.button:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--color-background);
+}
+
+.button:disabled {
+  opacity: 0.65;
+}
+
+/* 错误提示与后面的恢复按钮保持间距。 */
+.error + .button {
+  margin-top: var(--space-4);
+}
+
+/* 分页说明与按钮分开排列，窄屏允许换行。 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+/* 分页按钮之间保留间距。 */
+.pageActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 不可操作时变淡，实际点击由处理函数拦截。 */
+.button[aria-disabled='true'] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* 与处理次数、阶段信息保持间距。 */
+.cancelAction {
+  margin-top: var(--space-3);
+}
+
+/* 沿用现有按钮尺寸，用红色文字区分取消操作。 */
+.cancelButton {
+  color: var(--color-danger);
+}
+
+/* 重试按钮与失败原因之间保持间距，复用现有按钮外观。 */
+.retryAction {
+  margin-top: var(--space-3);
+}
+
+/* 详情入口与前面的任务操作保持间距。 */
+.detailAction {
+  margin-top: var(--space-3);
+}
+
+/* 链接保留下划线，并提供至少 44px 的点击高度。 */
+.detailLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-2) 0;
+  color: var(--color-primary);
+  text-underline-offset: 4px;
+}
+
+.detailLink:hover {
+  color: var(--color-primary-hover);
+}

@@ -1,0 +1,96 @@
+# 文件职责：自动检查后端单测和前端测试、代码检查及构建。
+# 作用与配合：由GitHub Actions读取项目锁文件并执行检查。
+# 边界：使用隔离测试配置，不连接演示数据库或真实Ollama，不部署应用。
+
+name: TicketPilot CI
+
+# 推送、合并请求时自动运行，也支持在GitHub页面手动触发。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# 本工作流只需要读取仓库代码。
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      # 测试配置使用SQLite，具体测试按需创建自己的临时数据库。
+      DATABASE_URL: "sqlite://"
+
+      # 仅供测试使用的公开固定值，不是演示环境密钥。
+      JWT_SECRET_KEY: "ci-only-test-key-never-use-in-deployment-123456"
+
+      # 本组模型调用由替身接管，不连接真实Ollama。
+      OLLAMA_BASE_URL: "http://127.0.0.1:9"
+
+      # 即使测试需要文件，也放在本次运行的临时目录。
+      KNOWLEDGE_UPLOAD_DIRECTORY: "${{ runner.temp }}/knowledge_uploads"
+      APPROVAL_WORKFLOW_CHECKPOINT_PATH: "${{ runner.temp }}/checkpoints.sqlite"
+
+    steps:
+      # 把当前待检查的代码下载到运行环境。
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # 安装uv，并指定项目使用的Python版本。
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.32"
+          python-version: "3.12.16"
+
+      # 根据uv.lock安装运行及开发依赖，包括pytest。
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      # 第一版先执行已验证的隔离单测范围。
+      - name: Run backend tests
+        run: >
+          uv run --locked pytest -q
+          tests/unit/identity
+          tests/unit/approvals
+          tests/unit/audit
+          tests/unit/observability
+          tests/unit/agent
+          tests/unit/integrations
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    # 下面所有run命令默认在frontend目录执行。
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # 安装Node，并缓存npm下载的依赖包。
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build

@@ -32,7 +32,7 @@ from ticketpilot.core.config import settings
 
 # 导入 ORM 模型，把表登记到 Base.metadata。
 import ticketpilot.identity.models  # noqa: F401, E402
-import ticketpilot.knowledge.models  # noqa: F401, E402
+import ticketpilot.knowledge.persistence.models  # noqa: F401, E402
 
 
 @pytest.fixture

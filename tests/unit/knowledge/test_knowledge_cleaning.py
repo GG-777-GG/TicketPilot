@@ -22,16 +22,18 @@ from hashlib import sha256
 import pytest
 
 # 导入清洗器版本、异常和清洗函数。
-from ticketpilot.knowledge.cleaning import (
+from ticketpilot.knowledge.domain.cleaning import (
     CLEANER_VERSION,
     DocumentCleaningError,
     clean_document,
 )
 
 # 导入清洗前的文档对象和来源类型。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
+    PageSpan,
     RawDocument,
+    SourcePage,
 )
 
 
@@ -101,6 +103,73 @@ def test_clean_document_normalizes_text() -> None:
     assert cleaned_document.cleaner_version == (
         CLEANER_VERSION
     )
+    assert cleaned_document.page_spans == ()
+
+
+def test_clean_document_records_offsets_after_cleaning_each_page() -> None:
+    """页范围必须按清洗后的文字长度计算，而不是按原文长度。"""
+
+    raw_document = RawDocument(
+        title="维修合同",
+        content="甲  方\n\n 保修三个月 ",
+        source_type=KnowledgeSourceType.FILE,
+        source_uri="contract.pdf",
+        source_pages=(
+            SourcePage(page_number=1, text="甲  方"),
+            SourcePage(page_number=2, text=" 保修三个月 "),
+        ),
+    )
+
+    result = clean_document(raw_document)
+
+    assert result.cleaned_content == "甲 方\n\n保修三个月"
+    assert result.page_spans == (
+        PageSpan(page_number=1, start_offset=0, end_offset=3),
+        PageSpan(page_number=2, start_offset=5, end_offset=10),
+    )
+    assert result.raw_content == raw_document.content
+    # 用范围切片取回各页文字，证明页码没有偏移。
+    assert tuple(
+        result.cleaned_content[span.start_offset:span.end_offset]
+        for span in result.page_spans
+    ) == ("甲 方", "保修三个月")
+
+
+def test_clean_document_preserves_page_number_after_empty_cleaned_page() -> None:
+    """清洗后为空的第二页不占范围，第三页仍标记为第 3 页。"""
+
+    raw_document = RawDocument(
+        title="三页 PDF",
+        content="第一页\n\n\u200b\n\n第三页",
+        source_type=KnowledgeSourceType.FILE,
+        source_pages=(
+            SourcePage(page_number=1, text="第一页"),
+            SourcePage(page_number=2, text="\u200b"),
+            SourcePage(page_number=3, text="第三页"),
+        ),
+    )
+
+    result = clean_document(raw_document)
+
+    assert result.cleaned_content == "第一页\n\n第三页"
+    assert result.page_spans == (
+        PageSpan(page_number=1, start_offset=0, end_offset=3),
+        PageSpan(page_number=3, start_offset=5, end_offset=8),
+    )
+
+
+def test_clean_document_rejects_pages_with_no_cleaned_text() -> None:
+    """有页面对象也不能让无有效正文的文件进入知识库。"""
+
+    raw_document = RawDocument(
+        title="空扫描件",
+        content="\u200b",
+        source_type=KnowledgeSourceType.FILE,
+        source_pages=(SourcePage(page_number=1, text="\u200b"),),
+    )
+
+    with pytest.raises(DocumentCleaningError, match="正文"):
+        clean_document(raw_document)
 
 
 # 验证内容指纹确实来自清洗后的正文。

@@ -304,3 +304,32 @@ def test_settings_rejects_invalid_embedding_configuration(
         Settings(
             _env_file=None,
         )
+
+
+# 这个测试负责确认实验性证据校验默认不会影响正式问答。
+def test_evidence_verification_is_disabled_by_default(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv(
+        "ENABLE_EVIDENCE_VERIFICATION",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "enable_evidence_verification",
+        raising=False,
+    )
+
+    test_settings = Settings(_env_file=None)
+
+    assert test_settings.enable_evidence_verification is False
+
+
+# 这个测试负责确认环境变量可以明确开启证据校验。
+def test_evidence_verification_can_be_enabled_by_environment(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_EVIDENCE_VERIFICATION", "true")
+
+    test_settings = Settings(_env_file=None)
+
+    assert test_settings.enable_evidence_verification is True

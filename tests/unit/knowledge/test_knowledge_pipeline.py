@@ -25,22 +25,24 @@ RawDocument
 import pytest
 
 # 导入切块阶段可能抛出的异常。
-from ticketpilot.knowledge.chunking import (
+from ticketpilot.knowledge.domain.chunking import (
     DocumentChunkingError,
 )
 
 # 导入清洗阶段可能抛出的异常。
-from ticketpilot.knowledge.cleaning import (
+from ticketpilot.knowledge.domain.cleaning import (
     DocumentCleaningError,
 )
 
 # 导入原始文档对象。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
+    KnowledgeSourceType,
     RawDocument,
+    SourcePage,
 )
 
 # 导入完整文档预处理入口。
-from ticketpilot.knowledge.pipeline import (
+from ticketpilot.knowledge.domain.pipeline import (
     PreparedDocument,
     prepare_document,
 )
@@ -146,6 +148,31 @@ def test_prepare_document_cleans_and_chunks_text() -> None:
             previous_chunk.content[-5:]
             == current_chunk.content[:5]
         )
+
+
+def test_prepare_document_keeps_pdf_pages_through_cleaning_and_chunking() -> None:
+    """上传页码经过清洗和切块后，跨页片段仍保留两个来源页。"""
+
+    raw_document = RawDocument(
+        title="维修合同",
+        content="甲  方\n\n保修三个月",
+        source_type=KnowledgeSourceType.FILE,
+        source_uri="contract.pdf",
+        source_pages=(
+            SourcePage(page_number=1, text="甲  方"),
+            SourcePage(page_number=2, text="保修三个月"),
+        ),
+    )
+
+    prepared = prepare_document(
+        raw_document,
+        max_characters=50,
+        overlap_characters=0,
+    )
+
+    assert prepared.cleaned_document.cleaned_content == "甲 方\n\n保修三个月"
+    assert prepared.chunk_count == 1
+    assert prepared.chunks[0].page_numbers == (1, 2)
 
 
 # 验证清洗异常不会被流水线隐藏。

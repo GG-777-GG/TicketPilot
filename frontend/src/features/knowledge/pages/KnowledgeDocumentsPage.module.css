@@ -1,0 +1,251 @@
+/*
+ * 文件职责：定义知识文档列表、移动卡片、状态、空结果和分页样式。
+ * 作用与配合：复用全局设计变量，桌面展示表格，窄屏展示卡片。
+ * 使用位置：由 KnowledgeDocumentsPage.tsx 通过 CSS Module 导入。
+ * 边界：只负责显示与布局，不过滤数据或修改文档。
+ */
+.header,
+.summary,
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+.header {
+    margin-bottom: var(--space-6);
+}
+
+.description,
+.muted,
+.source {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.description {
+    margin-top: var(--space-2);
+}
+
+.actions,
+.badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.button,
+.primaryButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.primaryButton {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: white;
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.primaryButton:hover {
+    background: var(--color-primary-hover);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.panel {
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.summary h2 {
+    font-size: 1.125rem;
+}
+
+.notice {
+    margin-top: var(--space-4);
+    color: var(--color-text-muted);
+}
+
+.table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin-top: var(--space-4);
+    font-size: var(--font-size-small);
+}
+
+.table th,
+.table td {
+    padding: var(--space-4) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.table th {
+    color: var(--color-text-muted);
+    font-weight: 600;
+}
+
+.table th:first-child {
+    width: 34%;
+}
+
+.table th:last-child {
+    width: 18%;
+}
+
+.documentTitle {
+    display: block;
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.source {
+    display: block;
+    margin-top: var(--space-1);
+    overflow-wrap: anywhere;
+}
+
+.badge,
+.visibility {
+    display: inline-block;
+    padding: var(--space-1) var(--space-2);
+    border-radius: 999px;
+    background: #f2f4f7;
+    color: #475467;
+    font-size: var(--font-size-small);
+}
+
+.badge[data-status='ready'] {
+    background: #eaf3ee;
+    color: var(--color-primary);
+}
+
+.badge[data-status='processing'] {
+    background: #eff8ff;
+    color: #1849a9;
+}
+
+.badge[data-status='failed'] {
+    background: #fef3f2;
+    color: var(--color-danger);
+}
+
+.visibility[data-visibility='restricted'] {
+    background: #fff5e6;
+    color: #854600;
+}
+
+.cards {
+    display: none;
+    list-style: none;
+    padding: 0;
+    margin: var(--space-4) 0 0;
+}
+
+.card {
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.badges {
+    margin-top: var(--space-3);
+}
+
+.cardFields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin: var(--space-4) 0 0;
+}
+
+.cardFields dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.cardFields dd {
+    margin: var(--space-1) 0 0;
+}
+
+.fullField {
+    grid-column: 1 / -1;
+}
+
+.pagination {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.empty {
+    padding: var(--space-8) 0;
+}
+
+.empty h3 {
+    margin-bottom: var(--space-2);
+    font-size: 1rem;
+}
+
+.empty .button,
+.error .button {
+    margin-top: var(--space-4);
+}
+
+/* 主内容区较窄时改用卡片，保持手机上每个字段都可读。 */
+@media (max-width: 1024px) {
+    .table {
+        display: none;
+    }
+
+    .cards {
+        display: block;
+    }
+}
+
+@media (max-width: 640px) {
+    .panel {
+        padding: var(--space-4);
+    }
+}
+
+/* 标题可以进入详情，点击区域至少 44px 高。 */
+.documentLink {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    max-width: 100%;
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* 鼠标悬停时加深颜色。 */
+.documentLink:hover {
+    color: var(--color-primary-hover);
+}

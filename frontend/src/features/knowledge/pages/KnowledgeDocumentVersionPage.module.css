@@ -1,0 +1,139 @@
+/*
+ * 文件职责：定义历史版本详情的摘要、正文、返回入口和响应式布局。
+ * 作用与配合：复用全站设计变量，正文按普通文字保留换行。
+ * 使用位置：由 KnowledgeDocumentVersionPage.tsx 通过 CSS Module 导入。
+ * 边界：只控制显示，不请求历史版本或修改文档。
+ */
+.page {
+    max-width: 1100px;
+    margin: 0 auto;
+    min-width: 0;
+}
+
+.header,
+.actions,
+.summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.header,
+.summary {
+    justify-content: space-between;
+}
+
+.header {
+    margin-bottom: var(--space-6);
+}
+
+.muted,
+.notice,
+.field dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.notice {
+    margin-bottom: var(--space-4);
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.card {
+    min-width: 0;
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.summary h2 {
+    font-size: 1.25rem;
+}
+
+.badge {
+    padding: var(--space-1) var(--space-3);
+    border-radius: 999px;
+    background: #fff5e6;
+    color: #854600;
+    font-size: var(--font-size-small);
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-6);
+    margin: var(--space-6) 0 0;
+}
+
+.field {
+    min-width: 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.field dd {
+    margin: var(--space-1) 0 0;
+}
+
+.content,
+.disclosure {
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--color-border);
+}
+
+.content h2 {
+    font-size: 1.125rem;
+}
+
+.documentText {
+    margin-top: var(--space-4);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.85;
+}
+
+.disclosure summary {
+    min-height: 44px;
+    padding: var(--space-2) 0;
+    color: var(--color-primary);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.error .button {
+    margin-top: var(--space-4);
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: var(--space-4);
+    }
+    .fields {
+        grid-template-columns: 1fr;
+    }
+}

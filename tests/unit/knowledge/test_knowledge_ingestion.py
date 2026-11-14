@@ -28,17 +28,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # 导入 Repository 转换后的数据库业务异常。
-from ticketpilot.knowledge.repository import (
+from ticketpilot.knowledge.persistence.repository import (
     KnowledgeRepositoryError,
 )
 
 # 导入数据库固定使用的向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 
 # 导入原始文档和文档状态。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeDocumentStatus,
     RawDocument,
 )
@@ -52,13 +52,13 @@ from ticketpilot.knowledge.embeddings.base import (
 )
 
 # 导入需要测试的入库函数和统一异常。
-from ticketpilot.knowledge.ingestion import (
+from ticketpilot.knowledge.application.ingestion import (
     KnowledgeIngestionError,
     ingest_document,
 )
 
 # 导入最终应该创建的文档 ORM 类型。
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.persistence.models import (
     KnowledgeDocumentRecord,
 )
 
@@ -110,6 +110,8 @@ def test_ingest_document_saves_document_and_chunks() -> None:
         embedding_provider=(
             embedding_provider
         ),
+        # 入库时就标记受限，避免先公开再修改的窗口。
+        visibility="restricted",
         max_characters=20,
         overlap_characters=5,
     )
@@ -124,6 +126,9 @@ def test_ingest_document_saves_document_and_chunks() -> None:
     assert saved_document.status == (
         KnowledgeDocumentStatus.READY.value
     )
+
+    # 可见性必须跟文档一起写入，不能等入库完成后再修改。
+    assert saved_document.visibility == "restricted"
 
     # 文档应该记录实际使用的向量模型和维度。
     assert (
@@ -169,6 +174,33 @@ def test_ingest_document_saves_document_and_chunks() -> None:
     session.commit.assert_called_once_with()
 
     # 成功流程不能执行回滚。
+    session.rollback.assert_not_called()
+
+
+# 这个测试负责确认 Worker 可以让调用方统一提交文档和任务状态。
+def test_ingest_document_can_defer_commit_to_caller() -> None:
+    session = MagicMock(spec=Session)
+    embedding_provider = MagicMock(spec=EmbeddingProvider)
+    embedding_provider.embed_texts.return_value = EmbeddingBatch(
+        model_name="fake-embedding-model",
+        dimensions=EMBEDDING_DIMENSIONS,
+        vectors=(build_test_vector(0.1),),
+    )
+
+    saved_document = ingest_document(
+        session=session,
+        raw_document=RawDocument(
+            title="统一提交测试",
+            content="文档先写入当前事务，稍后由 Worker 一起提交。",
+        ),
+        created_by="user-001",
+        embedding_provider=embedding_provider,
+        commit=False,
+    )
+
+    session.add.assert_called_once_with(saved_document)
+    session.flush.assert_called_once_with()
+    session.commit.assert_not_called()
     session.rollback.assert_not_called()
 
 # 这个测试负责验证向量生成失败时会回滚事务。

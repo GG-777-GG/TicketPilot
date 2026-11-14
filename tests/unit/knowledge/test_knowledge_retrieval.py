@@ -19,12 +19,12 @@ import pytest
 from sqlalchemy.orm import Session
 
 # 导入数据库固定要求的向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 
 # 导入知识来源枚举。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
 )
 
@@ -37,13 +37,13 @@ from ticketpilot.knowledge.embeddings.base import (
 )
 
 # 导入 Repository 查询结果类型和异常。
-from ticketpilot.knowledge.repository import (
+from ticketpilot.knowledge.persistence.repository import (
     KnowledgeChunkSearchRow,
     KnowledgeRepositoryError,
 )
 
 # 导入需要测试的检索函数、结果类型和异常。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
     MAX_RETRIEVAL_TOP_K,
     InvalidKnowledgeQueryError,
     KnowledgeRetrievalError,
@@ -107,6 +107,7 @@ def test_retrieve_knowledge_returns_matching_chunks(
         content="用户可以通过注册邮箱重置密码。",
         start_offset=0,
         end_offset=17,
+        page_numbers=(),
         cosine_distance=0.25,
     )
 
@@ -119,7 +120,7 @@ def test_retrieve_knowledge_returns_matching_chunks(
 
     # 临时替换 Retrieval Service 中真正的数据库查询函数。
     monkeypatch.setattr(
-        "ticketpilot.knowledge.retrieval."
+        "ticketpilot.knowledge.application.retrieval."
         "search_ready_chunks_by_cosine",
         repository_search,
     )
@@ -153,6 +154,7 @@ def test_retrieve_knowledge_returns_matching_chunks(
         ),
         top_k=3,
         min_similarity=0.5,
+        allowed_visibilities=("internal",),
     )
 
     # Service 应该返回 tuple。
@@ -185,6 +187,8 @@ def test_retrieve_knowledge_returns_matching_chunks(
     assert result.content == (
         "用户可以通过注册邮箱重置密码。"
     )
+    # 没有 PDF 页码时，业务检索结果保持空元组。
+    assert result.page_numbers == ()
 
     # similarity = 1 - cosine_distance
     assert result.similarity == pytest.approx(
@@ -478,7 +482,7 @@ def test_retrieve_knowledge_rolls_back_when_repository_fails(
     )
 
     monkeypatch.setattr(
-        "ticketpilot.knowledge.retrieval."
+        "ticketpilot.knowledge.application.retrieval."
         "search_ready_chunks_by_cosine",
         repository_search,
     )
@@ -525,7 +529,7 @@ def test_retrieve_knowledge_returns_empty_tuple_when_no_match(
     )
 
     monkeypatch.setattr(
-        "ticketpilot.knowledge.retrieval."
+        "ticketpilot.knowledge.application.retrieval."
         "search_ready_chunks_by_cosine",
         repository_search,
     )
@@ -569,11 +573,12 @@ def test_retrieve_knowledge_rejects_invalid_source_type(
         content="测试知识片段",
         start_offset=0,
         end_offset=6,
+        page_numbers=(),
         cosine_distance=0.2,
     )
 
     monkeypatch.setattr(
-        "ticketpilot.knowledge.retrieval."
+        "ticketpilot.knowledge.application.retrieval."
         "search_ready_chunks_by_cosine",
         MagicMock(
             return_value=(

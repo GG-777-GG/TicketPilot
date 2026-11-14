@@ -28,16 +28,31 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Session 用于测试数据库依赖的类型注解。
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.persistence.models import (
+    KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
+    KnowledgeDocumentVersionRecord,
+)
+
+# 导入列表测试需要的 Repository 返回类型。
+from ticketpilot.knowledge.persistence.repository import (
+    KnowledgeDocumentDetailRow,
+    KnowledgeDocumentListPage,
+    KnowledgeDocumentSummaryRow,
+    KnowledgeDocumentVersionDetailRow,
+    KnowledgeDocumentVersionListPage,
+    KnowledgeDocumentVersionSummaryRow,
+    KnowledgeRepositoryError,
 )
 
 # 导入知识文档和片段测试工厂。
 from tests.factories.knowledge import (
     build_knowledge_chunk,
     build_knowledge_document,
+    build_knowledge_document_version,
 )
 
 # 导入 FastAPI 应用。
@@ -64,12 +79,12 @@ from ticketpilot.identity.types import (
 )
 
 # 导入固定向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 
 # 导入真正的 Embedding Provider 依赖工厂。
-from ticketpilot.knowledge.dependencies import (
+from ticketpilot.knowledge.api.dependencies import (
     get_embedding_provider,
 )
 
@@ -80,24 +95,24 @@ from ticketpilot.knowledge.embeddings.base import (
 )
 
 # 导入入库服务统一异常。
-from ticketpilot.knowledge.ingestion import (
+from ticketpilot.knowledge.application.ingestion import (
     KnowledgeIngestionError,
 )
 
 # 导入知识来源枚举。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
 )
 
 # 导入检索服务返回的内部结果类型。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
     KnowledgeRetrievalError,
     RetrievedKnowledgeChunk,
 )
 
 # 导入知识库 Router 模块。
 # 后面的测试会替换它实际调用的 ingest_document。
-import ticketpilot.knowledge.router as knowledge_api
+import ticketpilot.knowledge.api.router as knowledge_api
 
 
 # 创建模拟 HTTP 客户端。
@@ -188,6 +203,916 @@ def configure_dependencies(
     ] = fake_get_embedding_provider
 
 
+# 验证主管可以使用默认分页查询知识文档列表。
+def test_list_knowledge_documents_returns_default_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 创建拥有知识库管理权限的主管用户。
+    current_user = build_test_user(
+        "supervisor"
+    )
+
+    # 列表接口不会调用向量模型，
+    # 但公共依赖配置函数仍然需要这个参数。
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=(
+            embedding_provider
+        ),
+    )
+
+    # 保存 Router 传给 Repository 的参数。
+    received_calls: list[
+        dict[str, object]
+    ] = []
+
+    # 模拟 Repository 返回一页知识文档摘要。
+    def fake_list_documents(
+        session: Session,
+        *,
+        limit: int,
+        offset: int,
+    ) -> KnowledgeDocumentListPage:
+        # 记录 Router 是否正确传递参数。
+        received_calls.append(
+            {
+                "session": session,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+
+        return KnowledgeDocumentListPage(
+            items=(
+                KnowledgeDocumentSummaryRow(
+                    id="document-001",
+                    title="密码重置说明",
+                    source_type="manual",
+                    source_uri=None,
+                    status="ready",
+                    visibility="restricted",
+                    chunk_count=2,
+                    embedding_model=(
+                        "qwen3-embedding:0.6b"
+                    ),
+                    embedding_dimensions=(
+                        EMBEDDING_DIMENSIONS
+                    ),
+                    version=1,
+                    created_by=current_user.id,
+                    created_at=TEST_TIMESTAMP,
+                    updated_at=TEST_TIMESTAMP,
+                ),
+            ),
+            total=1,
+        )
+
+    # 只替换 Repository 查询，
+    # Router、权限验证和响应转换仍使用真实代码。
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        fake_list_documents,
+    )
+
+    # 不传 limit 和 offset，验证默认分页参数。
+    response = client.get(
+        "/v1/knowledge/documents"
+    )
+
+    # 查询成功应该返回 HTTP 200。
+    assert response.status_code == 200
+
+    # 验证完整公开响应。
+    assert response.json() == {
+        "items": [
+            {
+                "id": "document-001",
+                "title": "密码重置说明",
+                "source_type": "manual",
+                "source_uri": None,
+                "status": "ready",
+                "visibility": "restricted",
+                "chunk_count": 2,
+                "embedding_model": (
+                    "qwen3-embedding:0.6b"
+                ),
+                "embedding_dimensions": (
+                    EMBEDDING_DIMENSIONS
+                ),
+                "version": 1,
+                "created_by": current_user.id,
+                "created_at": (
+                    "2026-01-01T00:00:00Z"
+                ),
+                "updated_at": (
+                    "2026-01-01T00:00:00Z"
+                ),
+            },
+        ],
+        "total": 1,
+        "limit": 20,
+        "offset": 0,
+    }
+
+    # Repository 应该只执行一次。
+    assert len(
+        received_calls
+    ) == 1
+
+    repository_call = received_calls[0]
+
+    # Router 应该使用默认分页参数。
+    assert repository_call["limit"] == 20
+    assert repository_call["offset"] == 0
+
+    # Router 应该传入依赖注入提供的 Session。
+    assert isinstance(
+        repository_call["session"],
+        Session,
+    )
+
+# 验证列表接口可以接收自定义分页，并正常返回空页面。
+def test_list_knowledge_documents_accepts_custom_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 管理员拥有知识文档管理权限。
+    current_user = build_test_user(
+        "admin"
+    )
+
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=(
+            embedding_provider
+        ),
+    )
+
+    # 只保存 Repository 收到的分页参数。
+    received_pagination: list[
+        tuple[
+            int,
+            int,
+        ]
+    ] = []
+
+    def fake_list_documents(
+        session: Session,
+        *,
+        limit: int,
+        offset: int,
+    ) -> KnowledgeDocumentListPage:
+        # Router 必须传入依赖注入得到的 Session。
+        assert isinstance(
+            session,
+            Session,
+        )
+
+        received_pagination.append(
+            (
+                limit,
+                offset,
+            )
+        )
+
+        # 数据库一共有 3 篇文档，
+        # offset=3 表示已经跳过全部文档。
+        return KnowledgeDocumentListPage(
+            items=(),
+            total=3,
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        fake_list_documents,
+    )
+
+    # 自定义每页数量和偏移量。
+    response = client.get(
+        (
+            "/v1/knowledge/documents"
+            "?limit=2"
+            "&offset=3"
+        )
+    )
+
+    # 没有当前页数据不是错误，仍然返回 200。
+    assert response.status_code == 200
+
+    assert response.json() == {
+        "items": [],
+        "total": 3,
+        "limit": 2,
+        "offset": 3,
+    }
+
+    # Router 应该把客户端参数原样传给 Repository。
+    assert received_pagination == [
+        (
+            2,
+            3,
+        )
+    ]
+
+# 验证未登录用户不能查询知识文档列表。
+def test_list_knowledge_documents_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 只提供测试 Session，
+    # 故意不覆盖 get_current_user。
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    # 未登录时绝对不能进入 Repository。
+    def should_not_list_documents(
+        *args,
+        **kwargs,
+    ):
+        raise AssertionError(
+            "未登录用户不应该查询知识文档列表"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        should_not_list_documents,
+    )
+
+    # 请求故意不携带 Authorization 请求头。
+    response = client.get(
+        "/v1/knowledge/documents"
+    )
+
+    # 没有通过身份认证应该返回 401。
+    assert response.status_code == 401
+
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+# 验证普通 agent 不能管理知识文档列表。
+def test_list_knowledge_documents_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 创建已经登录但权限不足的普通客服用户。
+    current_user = build_test_user(
+        "agent"
+    )
+
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=(
+            embedding_provider
+        ),
+    )
+
+    # 角色检查失败后绝对不能进入 Repository。
+    def should_not_list_documents(
+        *args,
+        **kwargs,
+    ):
+        raise AssertionError(
+            "普通 agent 不应该查询知识文档列表"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        should_not_list_documents,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents"
+    )
+
+    # 用户已经登录，但角色不允许，因此返回 403。
+    assert response.status_code == 403
+
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+@pytest.mark.parametrize(
+    "invalid_query",
+    [
+        pytest.param(
+            "limit=0",
+            id="limit_too_small",
+        ),
+        pytest.param(
+            "limit=101",
+            id="limit_too_large",
+        ),
+        pytest.param(
+            "offset=-1",
+            id="negative_offset",
+        ),
+        pytest.param(
+            "limit=abc",
+            id="limit_not_integer",
+        ),
+    ],
+)
+# 验证非法分页参数会在进入 Repository 前返回 422。
+def test_list_knowledge_documents_rejects_invalid_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_query: str,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=(
+            embedding_provider
+        ),
+    )
+
+    # Query 参数验证失败时不能执行数据库查询。
+    def should_not_list_documents(
+        *args,
+        **kwargs,
+    ):
+        raise AssertionError(
+            "非法分页参数不应该进入 Repository"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        should_not_list_documents,
+    )
+
+    response = client.get(
+        (
+            "/v1/knowledge/documents"
+            f"?{invalid_query}"
+        )
+    )
+
+    # FastAPI 的 Query 验证失败。
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+# 验证 Repository 故障会转换成安全的 HTTP 500。
+def test_list_knowledge_documents_returns_500_when_repository_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=(
+            embedding_provider
+        ),
+    )
+
+    # 模拟数据库连接或 SQL 查询失败。
+    def failing_list_documents(
+        *args,
+        **kwargs,
+    ):
+        raise KnowledgeRepositoryError(
+            "这里是不能泄漏给客户端的数据库错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_documents",
+        failing_list_documents,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents"
+    )
+
+    # Router 应该返回统一的服务器错误。
+    assert response.status_code == 500
+
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+
+    # 客户端不能看到 SQL 或数据库内部错误。
+    assert (
+        "不能泄漏"
+        not in response.text
+    )
+
+
+# 这个测试负责验证主管可以根据 ID 查询知识文档详情。
+def test_get_knowledge_document_returns_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    received_arguments: dict[
+        str,
+        object,
+    ] = {}
+
+    # 模拟 Repository 找到一篇知识文档。
+    def fake_get_document_by_id(
+        session: Session,
+        document_id: str,
+    ) -> KnowledgeDocumentDetailRow:
+        received_arguments["session"] = session
+        received_arguments["document_id"] = document_id
+
+        return KnowledgeDocumentDetailRow(
+            id="document-001",
+            title="密码重置说明",
+            raw_content="  用户可以重置密码。  ",
+            cleaned_content="用户可以重置密码。",
+            source_type="manual",
+            source_uri=None,
+            status="ready",
+            visibility="restricted",
+            processing_stage=None,
+            chunk_count=1,
+            embedding_model="qwen3-embedding:0.6b",
+            embedding_dimensions=1024,
+            cleaner_version="cleaner-v1",
+            chunker_version="chunker-v1",
+            version=1,
+            created_by="user-001",
+            created_at=TEST_TIMESTAMP,
+            updated_at=TEST_TIMESTAMP,
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        fake_get_document_by_id,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": "document-001",
+        "title": "密码重置说明",
+        "source_type": "manual",
+        "source_uri": None,
+        "status": "ready",
+        "visibility": "restricted",
+        "chunk_count": 1,
+        "embedding_model": "qwen3-embedding:0.6b",
+        "embedding_dimensions": 1024,
+        "version": 1,
+        "created_by": "user-001",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "raw_content": "  用户可以重置密码。  ",
+        "cleaned_content": "用户可以重置密码。",
+        "processing_stage": None,
+        "cleaner_version": "cleaner-v1",
+        "chunker_version": "chunker-v1",
+    }
+    assert received_arguments["document_id"] == "document-001"
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+
+# 这个测试负责验证不存在的文档会返回 404。
+def test_get_knowledge_document_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        lambda session, document_id: None,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/missing-document"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档不存在",
+    }
+
+
+# 这个测试负责验证未登录用户不能查看知识文档详情。
+def test_get_knowledge_document_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    def should_not_query_repository(
+        session: Session,
+        document_id: str,
+    ) -> None:
+        raise AssertionError(
+            "未登录用户不应该查询知识文档详情"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        should_not_query_repository,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001"
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能查看知识文档详情。
+def test_get_knowledge_document_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "agent"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_query_repository(
+        session: Session,
+        document_id: str,
+    ) -> None:
+        raise AssertionError(
+            "普通客服不应该查询知识文档详情"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        should_not_query_repository,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001"
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+# 这个测试负责验证过长的文档 ID 会在进入 Repository 前返回 422。
+def test_get_knowledge_document_rejects_invalid_document_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_query_repository(
+        session: Session,
+        document_id: str,
+    ) -> None:
+        raise AssertionError(
+            "非法文档 ID 不应该进入 Repository"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        should_not_query_repository,
+    )
+
+    response = client.get(
+        f"/v1/knowledge/documents/{'x' * 37}"
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证 Repository 错误会转换成安全的 HTTP 500。
+def test_get_knowledge_document_returns_500_when_repository_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_get_document_by_id(
+        session: Session,
+        document_id: str,
+    ) -> None:
+        raise KnowledgeRepositoryError(
+            "这里是不能泄漏给客户端的数据库错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_by_id",
+        failing_get_document_by_id,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001"
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
+
+# 这个测试负责验证主管可以成功归档知识文档。
+def test_archive_knowledge_document_returns_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    received_arguments: dict[
+        str,
+        object,
+    ] = {}
+
+    def fake_archive_document(
+        *,
+        session: Session,
+        document_id: str,
+    ) -> bool:
+        received_arguments["session"] = session
+        received_arguments["document_id"] = document_id
+        return True
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        fake_archive_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/archive"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert received_arguments["document_id"] == "document-001"
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+
+# 这个测试负责验证归档不存在的文档会返回 404。
+def test_archive_knowledge_document_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        lambda **kwargs: False,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/missing-document/archive"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档不存在",
+    }
+
+
+# 这个测试负责验证未登录用户不能归档知识文档。
+def test_archive_knowledge_document_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    def should_not_archive_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "未登录用户不应该进入归档 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        should_not_archive_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/archive"
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能归档知识文档。
+def test_archive_knowledge_document_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "agent"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_archive_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "普通客服不应该进入归档 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        should_not_archive_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/archive"
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+# 这个测试负责验证过长文档 ID 会返回 422。
+def test_archive_knowledge_document_rejects_invalid_document_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_archive_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "非法文档 ID 不应该进入归档 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        should_not_archive_document,
+    )
+
+    response = client.post(
+        f"/v1/knowledge/documents/{'x' * 37}/archive"
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证归档失败会返回安全的 HTTP 500。
+def test_archive_knowledge_document_returns_500_when_service_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_archive_document(
+        **kwargs,
+    ) -> bool:
+        raise knowledge_api.KnowledgeManagementError(
+            "这里是不能泄漏给客户端的内部错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "archive_document",
+        failing_archive_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/archive"
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
 @pytest.mark.parametrize(
     "allowed_role",
     [
@@ -201,10 +1126,20 @@ def configure_dependencies(
         ),
     ],
 )
+
+@pytest.mark.parametrize(
+    ("requested_visibility", "expected_visibility"),
+    [
+        (None, "internal"),
+        ("restricted", "restricted"),
+    ],
+)
 # 这个测试负责验证主管能够成功创建知识文档。
 def test_create_knowledge_document_returns_201(
     monkeypatch,
     allowed_role: UserRole,
+    requested_visibility: str | None,
+    expected_visibility: str,
 ) -> None:
     # 创建主管用户。
     current_user = build_test_user(
@@ -252,6 +1187,7 @@ def test_create_knowledge_document_returns_201(
         document.source_type = "manual"
         document.source_uri = None
         document.status = "ready"
+        document.visibility = kwargs["visibility"]
         document.embedding_dimensions = (
             EMBEDDING_DIMENSIONS
         )
@@ -288,12 +1224,16 @@ def test_create_knowledge_document_returns_201(
     )
 
     # 模拟前端提交一篇手动知识文档。
+    request_json = {
+        "title": "TicketPilot 密码重置说明",
+        "content": "用户可以通过邮箱重置密码。",
+    }
+    if requested_visibility is not None:
+        request_json["visibility"] = requested_visibility
+
     response = client.post(
         "/v1/knowledge/documents",
-        json={
-            "title": "TicketPilot 密码重置说明",
-            "content": "用户可以通过邮箱重置密码。",
-        },
+        json=request_json,
     )
 
     # 创建成功应该返回 HTTP 201。
@@ -311,6 +1251,7 @@ def test_create_knowledge_document_returns_201(
         response_data["status"]
         == "ready"
     )
+    assert response_data["visibility"] == expected_visibility
     assert (
         response_data["chunk_count"]
         == 2
@@ -344,6 +1285,9 @@ def test_create_knowledge_document_returns_201(
         received_calls[0]["created_by"]
         == current_user.id
     )
+
+    # 创建时就把可见性传给入库服务。
+    assert received_calls[0]["visibility"] == expected_visibility
 
     # Router 必须把依赖注入的 Provider 原样传给 Service。
     assert (
@@ -684,9 +1628,21 @@ def test_create_knowledge_document_persists_through_full_http_flow(
     # Fake Provider 应该只收到一次批量调用。
     embedding_provider.embed_texts.assert_called_once()
 
-# 这个测试负责验证已登录用户能够成功检索知识。
+# 这个测试负责验证已登录用户能够成功检索知识，并返回来源页码。
+@pytest.mark.parametrize(
+    ("source_type", "source_uri", "page_numbers"),
+    [
+        # 手动输入的文档没有 PDF 页码。
+        (KnowledgeSourceType.MANUAL, None, ()),
+        # PDF 片段可能跨页，公开响应应返回两个原始页码。
+        (KnowledgeSourceType.FILE, "guide.pdf", (2, 4)),
+    ],
+)
 def test_search_knowledge_returns_200(
     monkeypatch: pytest.MonkeyPatch,
+    source_type: KnowledgeSourceType,
+    source_uri: str | None,
+    page_numbers: tuple[int, ...],
 ) -> None:
     # 普通客服用户也允许查询企业知识库。
     current_user = build_test_user(
@@ -728,16 +1684,15 @@ def test_search_knowledge_returns_200(
                 document_id="document-001",
                 document_title="密码重置说明",
                 document_version=1,
-                source_type=(
-                    KnowledgeSourceType.MANUAL
-                ),
-                source_uri=None,
+                source_type=source_type,
+                source_uri=source_uri,
                 chunk_index=0,
                 content=(
                     "用户可以通过注册邮箱重置密码。"
                 ),
                 start_offset=0,
                 end_offset=17,
+                page_numbers=page_numbers,
 
                 # similarity = 1 - 0.08 = 0.92
                 cosine_distance=0.08,
@@ -776,14 +1731,15 @@ def test_search_knowledge_returns_200(
                 "document_id": "document-001",
                 "document_title": "密码重置说明",
                 "document_version": 1,
-                "source_type": "manual",
-                "source_uri": None,
+                "source_type": source_type.value,
+                "source_uri": source_uri,
                 "chunk_index": 0,
                 "content": (
                     "用户可以通过注册邮箱重置密码。"
                 ),
                 "start_offset": 0,
                 "end_offset": 17,
+                "page_numbers": list(page_numbers),
                 "similarity": 0.92,
             },
         ],
@@ -819,6 +1775,46 @@ def test_search_knowledge_returns_200(
         service_call["session"],
         Session,
     )
+
+# 这个测试负责验证路由按登录角色传递知识文档可见范围。
+@pytest.mark.parametrize(
+    ("role", "expected_visibilities"),
+    [
+        ("agent", ("internal",)),
+        ("supervisor", ("internal", "restricted")),
+        ("admin", ("internal", "restricted")),
+    ],
+)
+def test_search_knowledge_uses_current_user_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+    role: UserRole,
+    expected_visibilities: tuple[str, ...],
+) -> None:
+    # 测试认证依赖返回的角色，不能信任请求自行声明权限。
+    current_user = build_test_user(role)
+    embedding_provider = MagicMock(spec=EmbeddingProvider)
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+    retrieve_mock = MagicMock(return_value=())
+    monkeypatch.setattr(
+        knowledge_api,
+        "retrieve_knowledge",
+        retrieve_mock,
+    )
+
+    response = client.post(
+        "/v1/knowledge/search",
+        json={"query": "如何重置密码？"},
+    )
+
+    assert response.status_code == 200
+    retrieve_mock.assert_called_once()
+    assert retrieve_mock.call_args.kwargs[
+        "allowed_visibilities"
+    ] == expected_visibilities
+
 
 # 这个测试负责验证没有匹配内容时返回空结果。
 def test_search_knowledge_returns_empty_results(
@@ -1027,3 +2023,1640 @@ def test_search_knowledge_returns_500_when_retrieval_fails(
         "不能泄漏"
         not in response.text
     )
+
+
+# 这个测试负责验证主管可以恢复已归档知识文档。
+def test_restore_knowledge_document_returns_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    received_arguments: dict[
+        str,
+        object,
+    ] = {}
+
+    def fake_restore_document(
+        *,
+        session: Session,
+        document_id: str,
+    ) -> bool:
+        received_arguments["session"] = session
+        received_arguments["document_id"] = document_id
+        return True
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        fake_restore_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/restore"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert received_arguments["document_id"] == "document-001"
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+
+# 这个测试负责验证恢复不存在的文档会返回 404。
+def test_restore_knowledge_document_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        lambda **kwargs: False,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/missing-document/restore"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档不存在",
+    }
+
+
+# 这个测试负责验证不允许恢复的文档状态会返回 409。
+def test_restore_knowledge_document_returns_409_for_invalid_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_restore_document(
+        **kwargs,
+    ) -> bool:
+        raise knowledge_api.InvalidKnowledgeDocumentStateError(
+            "只有已归档的知识文档可以恢复"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        failing_restore_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/restore"
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "只有已归档的知识文档可以恢复",
+    }
+
+
+# 这个测试负责验证未登录用户不能恢复知识文档。
+def test_restore_knowledge_document_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    def should_not_restore_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "未登录用户不应该进入恢复 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        should_not_restore_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/restore"
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能恢复知识文档。
+def test_restore_knowledge_document_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "agent"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_restore_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "普通客服不应该进入恢复 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        should_not_restore_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/restore"
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+# 这个测试负责验证过长文档 ID 会返回 422。
+def test_restore_knowledge_document_rejects_invalid_document_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_restore_document(
+        **kwargs,
+    ) -> bool:
+        raise AssertionError(
+            "非法文档 ID 不应该进入恢复 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        should_not_restore_document,
+    )
+
+    response = client.post(
+        f"/v1/knowledge/documents/{'x' * 37}/restore"
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证恢复失败会返回安全的 HTTP 500。
+def test_restore_knowledge_document_returns_500_when_service_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_restore_document(
+        **kwargs,
+    ) -> bool:
+        raise knowledge_api.KnowledgeManagementError(
+            "这里是不能泄漏给客户端的内部错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "restore_document",
+        failing_restore_document,
+    )
+
+    response = client.post(
+        "/v1/knowledge/documents/document-001/restore"
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
+
+@pytest.mark.parametrize(
+    "allowed_role",
+    [
+        pytest.param(
+            "supervisor",
+            id="supervisor",
+        ),
+        pytest.param(
+            "admin",
+            id="admin",
+        ),
+    ],
+)
+# 这个测试负责验证主管和管理员能够更新知识文档。
+def test_update_knowledge_document_returns_200(
+    monkeypatch: pytest.MonkeyPatch,
+    allowed_role: UserRole,
+) -> None:
+    current_user = build_test_user(
+        allowed_role
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    received_arguments: dict[
+        str,
+        object,
+    ] = {}
+
+    # 模拟 Service 完成更新并返回版本 2 的 ORM 对象。
+    def fake_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        received_arguments.update(
+            kwargs
+        )
+
+        document = build_knowledge_document(
+            document_id="document-001",
+            created_by="original-creator",
+            title="新版密码说明",
+            raw_content="员工验证邮箱后重置密码。",
+            embedding_model="fake-update-model",
+        )
+        document.source_type = "manual"
+        document.source_uri = None
+        document.status = "ready"
+        document.embedding_dimensions = (
+            EMBEDDING_DIMENSIONS
+        )
+        document.version = 2
+        document.created_at = TEST_TIMESTAMP
+        document.updated_at = TEST_TIMESTAMP
+        document.chunks.append(
+            build_knowledge_chunk(
+                chunk_id="new-chunk-001",
+                content="员工验证邮箱后重置密码。",
+            )
+        )
+        return document
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        fake_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "document-001"
+    assert response.json()["version"] == 2
+    assert response.json()["chunk_count"] == 1
+    assert response.json()["created_by"] == (
+        "original-creator"
+    )
+
+    # Router 必须把 HTTP 数据和依赖正确交给 Service。
+    assert received_arguments["document_id"] == (
+        "document-001"
+    )
+    assert received_arguments["expected_version"] == 1
+    assert received_arguments["updated_by"] == (
+        current_user.id
+    )
+    assert received_arguments["embedding_provider"] is (
+        embedding_provider
+    )
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+    raw_document = received_arguments[
+        "raw_document"
+    ]
+    assert raw_document.title == "新版密码说明"
+    assert raw_document.content == (
+        "员工验证邮箱后重置密码。"
+    )
+
+
+# 这个测试负责验证更新不存在的知识文档会返回 404。
+def test_update_knowledge_document_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        lambda **kwargs: None,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/missing-document",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档不存在",
+    }
+
+
+@pytest.mark.parametrize(
+    (
+        "error_type",
+        "error_message",
+    ),
+    [
+        pytest.param(
+            knowledge_api.KnowledgeDocumentVersionConflictError,
+            "知识文档版本冲突",
+            id="stale-version",
+        ),
+        pytest.param(
+            knowledge_api.InvalidKnowledgeDocumentUpdateStateError,
+            "当前状态不允许更新",
+            id="invalid-state",
+        ),
+        pytest.param(
+            knowledge_api.KnowledgeDocumentNoChangesError,
+            "知识文档内容没有变化",
+            id="no-changes",
+        ),
+    ],
+)
+# 这个测试负责验证三种更新业务冲突都会返回 409。
+def test_update_knowledge_document_returns_409_for_business_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[ValueError],
+    error_message: str,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise error_type(
+            error_message
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        failing_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": error_message,
+    }
+
+
+@pytest.mark.parametrize(
+    "invalid_body",
+    [
+        pytest.param(
+            {
+                "title": "新版密码说明",
+                "content": "员工验证邮箱后重置密码。",
+            },
+            id="missing-expected-version",
+        ),
+        pytest.param(
+            {
+                "title": "新版密码说明",
+                "content": "员工验证邮箱后重置密码。",
+                "expected_version": 0,
+            },
+            id="invalid-expected-version",
+        ),
+        pytest.param(
+            {
+                "title": "新版密码说明",
+                "content": "   ",
+                "expected_version": 1,
+            },
+            id="blank-content",
+        ),
+    ],
+)
+# 这个测试负责验证非法更新请求会在进入 Service 前返回 422。
+def test_update_knowledge_document_rejects_invalid_request(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_body: dict[str, object],
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise AssertionError(
+            "非法请求不应该进入更新 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        should_not_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json=invalid_body,
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证过长文档 ID 会返回 422。
+def test_update_knowledge_document_rejects_invalid_document_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise AssertionError(
+            "非法文档 ID 不应该进入更新 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        should_not_update_document,
+    )
+
+    response = client.put(
+        f"/v1/knowledge/documents/{'x' * 37}",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证未登录用户不能更新知识文档。
+def test_update_knowledge_document_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+    app.dependency_overrides[
+        get_embedding_provider
+    ] = lambda: embedding_provider
+
+    def should_not_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise AssertionError(
+            "未登录用户不应该进入更新 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        should_not_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能更新知识文档。
+def test_update_knowledge_document_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "agent"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def should_not_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise AssertionError(
+            "普通客服不应该进入更新 Service"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        should_not_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+# 这个测试负责验证内部更新失败会返回安全的 HTTP 500。
+def test_update_knowledge_document_returns_500_when_service_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    def failing_update_document(
+        **kwargs,
+    ) -> KnowledgeDocumentRecord:
+        raise knowledge_api.KnowledgeDocumentUpdateError(
+            "这里是不能泄漏给客户端的内部错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api,
+        "update_document",
+        failing_update_document,
+    )
+
+    response = client.put(
+        "/v1/knowledge/documents/document-001",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
+
+# 这个测试负责验证 PUT 接口会真正保存历史版本并替换片段。
+def test_update_knowledge_document_persists_through_full_http_flow(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    database_session.commit()
+    user_id = database_user.id
+
+    document = build_knowledge_document(
+        document_id="http-update-document",
+        created_by=user_id,
+        title="旧版密码说明",
+        raw_content="员工使用旧流程重置密码。",
+        embedding_model="old-embedding-model",
+    )
+    document.status = "ready"
+    document.chunks.append(
+        build_knowledge_chunk(
+            chunk_id="http-old-chunk",
+            content="员工使用旧流程重置密码。",
+        )
+    )
+    database_session.add(
+        document
+    )
+    database_session.commit()
+
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+
+    def fake_embed_texts(
+        texts,
+    ) -> EmbeddingBatch:
+        return EmbeddingBatch(
+            model_name="fake-update-model",
+            dimensions=EMBEDDING_DIMENSIONS,
+            vectors=tuple(
+                tuple(
+                    [0.6] * EMBEDDING_DIMENSIONS
+                )
+                for _ in texts
+            ),
+        )
+
+    embedding_provider.embed_texts.side_effect = (
+        fake_embed_texts
+    )
+
+    def use_database_session() -> Generator[
+        Session,
+        None,
+        None,
+    ]:
+        yield database_session
+
+    def use_database_user() -> UserRecord:
+        return database_user
+
+    def use_embedding_provider() -> (
+        EmbeddingProvider
+    ):
+        return embedding_provider
+
+    app.dependency_overrides[
+        get_session
+    ] = use_database_session
+    app.dependency_overrides[
+        get_current_user
+    ] = use_database_user
+    app.dependency_overrides[
+        get_embedding_provider
+    ] = use_embedding_provider
+
+    response = client.put(
+        "/v1/knowledge/documents/http-update-document",
+        json={
+            "title": "新版密码说明",
+            "content": "员工验证企业邮箱后重置密码。",
+            "expected_version": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["version"] == 2
+    assert response_data["title"] == "新版密码说明"
+    assert response_data["chunk_count"] == 1
+
+    database_session.expire_all()
+
+    saved_document = database_session.get(
+        KnowledgeDocumentRecord,
+        "http-update-document",
+    )
+    saved_history = database_session.scalar(
+        select(
+            KnowledgeDocumentVersionRecord
+        ).where(
+            KnowledgeDocumentVersionRecord.document_id
+            == "http-update-document"
+        )
+    )
+    saved_chunks = database_session.scalars(
+        select(
+            KnowledgeChunkRecord
+        ).where(
+            KnowledgeChunkRecord.document_id
+            == "http-update-document"
+        )
+    ).all()
+
+    assert saved_document is not None
+    assert saved_document.version == 2
+    assert saved_document.updated_by == user_id
+    assert saved_document.raw_content == (
+        "员工验证企业邮箱后重置密码。"
+    )
+    assert saved_document.embedding_model == (
+        "fake-update-model"
+    )
+
+    assert saved_history is not None
+    assert saved_history.version == 1
+    assert saved_history.title == "旧版密码说明"
+    assert saved_history.superseded_by == user_id
+
+    assert len(saved_chunks) == 1
+    assert saved_chunks[0].id != "http-old-chunk"
+    assert saved_chunks[0].content == (
+        "员工验证企业邮箱后重置密码。"
+    )
+    embedding_provider.embed_texts.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "allowed_role",
+    [
+        pytest.param(
+            "supervisor",
+            id="supervisor",
+        ),
+        pytest.param(
+            "admin",
+            id="admin",
+        ),
+    ],
+)
+# 这个测试负责验证主管和管理员能够查询历史版本。
+def test_list_knowledge_document_versions_returns_200(
+    monkeypatch: pytest.MonkeyPatch,
+    allowed_role: UserRole,
+) -> None:
+    current_user = build_test_user(
+        allowed_role
+    )
+    embedding_provider = MagicMock(
+        spec=EmbeddingProvider
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=embedding_provider,
+    )
+
+    received_arguments: dict[
+        str,
+        object,
+    ] = {}
+
+    def fake_list_document_versions(
+        session: Session,
+        document_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> KnowledgeDocumentVersionListPage:
+        received_arguments.update(
+            {
+                "session": session,
+                "document_id": document_id,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+        return KnowledgeDocumentVersionListPage(
+            items=(
+                KnowledgeDocumentVersionSummaryRow(
+                    document_id=document_id,
+                    version=2,
+                    title="第二版密码说明",
+                    source_type="manual",
+                    source_uri=None,
+                    embedding_model=(
+                        "qwen3-embedding:0.6b"
+                    ),
+                    embedding_dimensions=(
+                        EMBEDDING_DIMENSIONS
+                    ),
+                    cleaner_version="cleaner-v1",
+                    chunker_version="chunker-v1",
+                    created_by="creator-user",
+                    created_at=TEST_TIMESTAMP,
+                    superseded_by="updater-user",
+                    superseded_at=TEST_TIMESTAMP,
+                ),
+            ),
+            total=2,
+            current_version=3,
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        fake_list_document_versions,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions",
+        params={
+            "limit": 10,
+            "offset": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "document_id": "document-001",
+        "current_version": 3,
+        "items": [
+            {
+                "version": 2,
+                "title": "第二版密码说明",
+                "source_type": "manual",
+                "source_uri": None,
+                "embedding_model": (
+                    "qwen3-embedding:0.6b"
+                ),
+                "embedding_dimensions": (
+                    EMBEDDING_DIMENSIONS
+                ),
+                "cleaner_version": "cleaner-v1",
+                "chunker_version": "chunker-v1",
+                "created_by": "creator-user",
+                "created_at": (
+                    "2026-01-01T00:00:00Z"
+                ),
+                "superseded_by": "updater-user",
+                "superseded_at": (
+                    "2026-01-01T00:00:00Z"
+                ),
+            },
+        ],
+        "total": 2,
+        "limit": 10,
+        "offset": 1,
+    }
+    assert received_arguments["document_id"] == (
+        "document-001"
+    )
+    assert received_arguments["limit"] == 10
+    assert received_arguments["offset"] == 1
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+
+# 这个测试负责验证没有历史版本的文档会返回空页面。
+def test_list_knowledge_document_versions_returns_empty_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        lambda *args, **kwargs: (
+            KnowledgeDocumentVersionListPage(
+                items=(),
+                total=0,
+                current_version=1,
+            )
+        ),
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/new-document/versions"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["total"] == 0
+    assert response.json()["current_version"] == 1
+
+
+# 这个测试负责验证文档不存在时返回 404。
+def test_list_knowledge_document_versions_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        lambda *args, **kwargs: None,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/missing-document/versions"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档不存在",
+    }
+
+
+# 这个测试负责验证未登录用户不能查询历史版本。
+def test_list_knowledge_document_versions_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    def should_not_list_versions(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionListPage:
+        raise AssertionError(
+            "未登录用户不应该查询历史版本"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        should_not_list_versions,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions"
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能查询历史版本。
+def test_list_knowledge_document_versions_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "agent"
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def should_not_list_versions(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionListPage:
+        raise AssertionError(
+            "普通客服不应该查询历史版本"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        should_not_list_versions,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions"
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+@pytest.mark.parametrize(
+    "request_url",
+    [
+        pytest.param(
+            "/v1/knowledge/documents/document-001/versions?limit=0",
+            id="limit-too-small",
+        ),
+        pytest.param(
+            "/v1/knowledge/documents/document-001/versions?limit=101",
+            id="limit-too-large",
+        ),
+        pytest.param(
+            "/v1/knowledge/documents/document-001/versions?offset=-1",
+            id="negative-offset",
+        ),
+        pytest.param(
+            f"/v1/knowledge/documents/{'x' * 37}/versions",
+            id="document-id-too-long",
+        ),
+    ],
+)
+# 这个测试负责验证非法路径和分页参数返回 422。
+def test_list_knowledge_document_versions_rejects_invalid_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    request_url: str,
+) -> None:
+    current_user = build_test_user(
+        "supervisor"
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def should_not_list_versions(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionListPage:
+        raise AssertionError(
+            "非法参数不应该进入 Repository"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        should_not_list_versions,
+    )
+
+    response = client.get(
+        request_url
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证数据库失败时返回安全的 HTTP 500。
+def test_list_knowledge_document_versions_returns_500_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_user = build_test_user(
+        "admin"
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def failing_list_versions(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionListPage:
+        raise KnowledgeRepositoryError(
+            "这里是不能泄漏给客户端的内部错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "list_document_versions",
+        failing_list_versions,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions"
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
+
+# 这个测试负责验证 HTTP 接口会读取真实数据库历史版本。
+def test_list_knowledge_document_versions_reads_real_database(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    database_session.commit()
+    user_id = database_user.id
+
+    document = build_knowledge_document(
+        document_id="http-version-list-document",
+        created_by=user_id,
+        title="当前第 3 版",
+    )
+    document.version = 3
+    database_session.add(
+        document
+    )
+    database_session.flush()
+    database_session.add_all(
+        [
+            build_knowledge_document_version(
+                version_id="http-history-version-1",
+                document_id=document.id,
+                version=1,
+                title="历史第 1 版",
+                created_by=user_id,
+                superseded_by=user_id,
+            ),
+            build_knowledge_document_version(
+                version_id="http-history-version-2",
+                document_id=document.id,
+                version=2,
+                title="历史第 2 版",
+                created_by=user_id,
+                superseded_by=user_id,
+            ),
+        ]
+    )
+    database_session.commit()
+
+    def use_database_session() -> Generator[
+        Session,
+        None,
+        None,
+    ]:
+        yield database_session
+
+    def use_database_user() -> UserRecord:
+        return database_user
+
+    app.dependency_overrides[
+        get_session
+    ] = use_database_session
+    app.dependency_overrides[
+        get_current_user
+    ] = use_database_user
+
+    response = client.get(
+        (
+            "/v1/knowledge/documents/"
+            "http-version-list-document/versions"
+        )
+    )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["document_id"] == (
+        "http-version-list-document"
+    )
+    assert response_data["current_version"] == 3
+    assert response_data["total"] == 2
+    assert response_data["limit"] == 20
+    assert response_data["offset"] == 0
+    assert [
+        item["version"]
+        for item in response_data["items"]
+    ] == [
+        2,
+        1,
+    ]
+    assert [
+        item["title"]
+        for item in response_data["items"]
+    ] == [
+        "历史第 2 版",
+        "历史第 1 版",
+    ]
+    assert all(
+        "raw_content" not in item
+        for item in response_data["items"]
+    )
+
+
+@pytest.mark.parametrize(
+    "allowed_role",
+    [
+        pytest.param("supervisor", id="supervisor"),
+        pytest.param("admin", id="admin"),
+    ],
+)
+# 这个测试负责验证主管和管理员能够查询历史版本详情。
+def test_get_knowledge_document_version_returns_200(
+    monkeypatch: pytest.MonkeyPatch,
+    allowed_role: UserRole,
+) -> None:
+    current_user = build_test_user(
+        allowed_role
+    )
+    configure_dependencies(
+        current_user=current_user,
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+    received_arguments: dict[str, object] = {}
+
+    def fake_get_document_version(
+        session: Session,
+        document_id: str,
+        version: int,
+    ) -> KnowledgeDocumentVersionDetailRow:
+        received_arguments.update(
+            {
+                "session": session,
+                "document_id": document_id,
+                "version": version,
+            }
+        )
+        return KnowledgeDocumentVersionDetailRow(
+            document_id=document_id,
+            version=version,
+            title="第二版密码说明",
+            source_type="manual",
+            source_uri=None,
+            embedding_model="qwen3-embedding:0.6b",
+            embedding_dimensions=EMBEDDING_DIMENSIONS,
+            cleaner_version="cleaner-v1",
+            chunker_version="chunker-v1",
+            created_by="creator-user",
+            created_at=TEST_TIMESTAMP,
+            superseded_by="updater-user",
+            superseded_at=TEST_TIMESTAMP,
+            raw_content="  用户最初提交的正文。  ",
+            cleaned_content="用户最初提交的正文。",
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        fake_get_document_version,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions/2"
+    )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["version"] == 2
+    assert response_data["title"] == "第二版密码说明"
+    assert response_data["raw_content"] == (
+        "  用户最初提交的正文。  "
+    )
+    assert response_data["cleaned_content"] == (
+        "用户最初提交的正文。"
+    )
+    assert "content_hash" not in response_data
+    assert received_arguments["document_id"] == (
+        "document-001"
+    )
+    assert received_arguments["version"] == 2
+    assert isinstance(
+        received_arguments["session"],
+        Session,
+    )
+
+
+# 这个测试负责验证不存在的历史版本返回 404。
+def test_get_knowledge_document_version_returns_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_dependencies(
+        current_user=build_test_user("admin"),
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        lambda *args, **kwargs: None,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions/99"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "知识文档历史版本不存在",
+    }
+
+
+# 这个测试负责验证未登录用户不能查询历史版本详情。
+def test_get_knowledge_document_version_requires_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[
+        get_session
+    ] = fake_get_session
+
+    def should_not_get_version(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionDetailRow:
+        raise AssertionError(
+            "未登录用户不应该查询历史版本详情"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        should_not_get_version,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions/1"
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "无效或缺少访问令牌",
+    }
+
+
+# 这个测试负责验证普通客服不能查询历史版本详情。
+def test_get_knowledge_document_version_forbids_agent_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_dependencies(
+        current_user=build_test_user("agent"),
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def should_not_get_version(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionDetailRow:
+        raise AssertionError(
+            "普通客服不应该查询历史版本详情"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        should_not_get_version,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions/1"
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "权限不足",
+    }
+
+
+@pytest.mark.parametrize(
+    "request_url",
+    [
+        pytest.param(
+            "/v1/knowledge/documents/document-001/versions/0",
+            id="version-too-small",
+        ),
+        pytest.param(
+            "/v1/knowledge/documents/document-001/versions/not-number",
+            id="version-not-integer",
+        ),
+        pytest.param(
+            f"/v1/knowledge/documents/{'x' * 37}/versions/1",
+            id="document-id-too-long",
+        ),
+    ],
+)
+# 这个测试负责验证非法路径参数会返回 422。
+def test_get_knowledge_document_version_rejects_invalid_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    request_url: str,
+) -> None:
+    configure_dependencies(
+        current_user=build_test_user("supervisor"),
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def should_not_get_version(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionDetailRow:
+        raise AssertionError(
+            "非法路径参数不应该进入 Repository"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        should_not_get_version,
+    )
+
+    response = client.get(
+        request_url
+    )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+# 这个测试负责验证数据库异常会转换成安全的 HTTP 500。
+def test_get_knowledge_document_version_returns_500_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_dependencies(
+        current_user=build_test_user("admin"),
+        embedding_provider=MagicMock(
+            spec=EmbeddingProvider
+        ),
+    )
+
+    def failing_get_version(
+        *args,
+        **kwargs,
+    ) -> KnowledgeDocumentVersionDetailRow:
+        raise KnowledgeRepositoryError(
+            "这里是不能泄漏给客户端的内部错误"
+        )
+
+    monkeypatch.setattr(
+        knowledge_api.knowledge_repository,
+        "get_document_version_by_number",
+        failing_get_version,
+    )
+
+    response = client.get(
+        "/v1/knowledge/documents/document-001/versions/1"
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "知识库服务暂时不可用",
+    }
+    assert "不能泄漏" not in response.text
+
+
+# 这个测试负责验证详情接口会读取真实历史版本正文。
+def test_get_knowledge_document_version_reads_real_database(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    database_session.commit()
+    user_id = database_user.id
+
+    document = build_knowledge_document(
+        document_id="http-version-detail-document",
+        created_by=user_id,
+        title="当前第 2 版",
+    )
+    document.version = 2
+    database_session.add(
+        document
+    )
+    database_session.flush()
+    database_session.add(
+        build_knowledge_document_version(
+            version_id="http-version-detail-1",
+            document_id=document.id,
+            version=1,
+            title="历史第 1 版",
+            raw_content="  历史原始正文。  ",
+            cleaned_content="历史原始正文。",
+            created_by=user_id,
+            superseded_by=user_id,
+        )
+    )
+    database_session.commit()
+
+    def use_database_session() -> Generator[
+        Session,
+        None,
+        None,
+    ]:
+        yield database_session
+
+    def use_database_user() -> UserRecord:
+        return database_user
+
+    app.dependency_overrides[
+        get_session
+    ] = use_database_session
+    app.dependency_overrides[
+        get_current_user
+    ] = use_database_user
+
+    response = client.get(
+        (
+            "/v1/knowledge/documents/"
+            "http-version-detail-document/versions/1"
+        )
+    )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["version"] == 1
+    assert response_data["title"] == "历史第 1 版"
+    assert response_data["raw_content"] == (
+        "  历史原始正文。  "
+    )
+    assert response_data["cleaned_content"] == (
+        "历史原始正文。"
+    )
+    assert "content_hash" not in response_data

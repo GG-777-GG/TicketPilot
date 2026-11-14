@@ -1,0 +1,32 @@
+/*
+ * 文件职责：配置 src 中浏览器端 TypeScript、React JSX 和 CSS 模块的类型检查。
+ * 作用与配合：声明 DOM 与 Vite 类型、模块解析方式和未使用代码等检查规则。
+ * 使用位置：由 tsconfig.json 引用，供编辑器和 tsc -b 检查应用源码。
+ * 边界：类型检查不会验证实际 HTTP JSON 内容，也不负责打包资源。
+ */
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "allowArbitraryExtensions": true,
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

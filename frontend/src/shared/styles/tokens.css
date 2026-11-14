@@ -1,0 +1,45 @@
+/*
+ * 文件职责：集中定义全站字体、颜色、间距和圆角等设计变量。
+ * 作用与配合：各 CSS 文件通过 var() 读取这些变量，保持界面风格一致。
+ * 使用位置：由 global.css 导入，再供全站组件样式使用。
+ * 边界：只提供样式数值，不定义具体业务页面布局或运行逻辑。
+ */
+/* :root 表示页面根元素，这里的变量可以供全站使用。 */
+:root {
+  /* 中文和英文优先使用电脑已有字体，无需额外下载。 */
+  --font-sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+
+  /* 页面背景、卡片背景和侧边栏背景。 */
+  --color-background: #f5f7f6;
+  --color-surface: #ffffff;
+  --color-sidebar: #153e35;
+
+  /* 主要按钮及鼠标悬停时的颜色。 */
+  --color-primary: #23684c;
+  --color-primary-hover: #1b513b;
+
+  /* 正文、辅助说明、边框和错误提示。 */
+  --color-text: #20352c;
+  --color-text-muted: #62756a;
+  --color-border: #dce5df;
+  --color-danger: #b42318;
+
+    /* 输入框专用边框色，让白色背景上的边界更清楚。 */
+    --color-input-border: #7a8f82;
+
+  /* rem 跟随页面根字号，浏览器默认情况下 1rem 通常是 16px。 */
+  --font-size-base: 1rem;
+  --font-size-small: 0.875rem;
+
+  /* 统一间距，后续组件直接使用这些变量。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* 统一圆角。 */
+  --radius-small: 8px;
+  --radius-medium: 12px;
+}

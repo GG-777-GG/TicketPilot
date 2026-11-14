@@ -29,14 +29,16 @@ from ticketpilot.identity.models import (
 )
 
 # 导入固定向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 
 # 导入原始文档和文档状态。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeDocumentStatus,
+    KnowledgeSourceType,
     RawDocument,
+    SourcePage,
 )
 
 # 导入向量接口和批量结果。
@@ -57,13 +59,13 @@ from sqlalchemy import (
 )
 
 # 导入完整知识入库函数。
-from ticketpilot.knowledge.ingestion import (
+from ticketpilot.knowledge.application.ingestion import (
     KnowledgeIngestionError,
     ingest_document,
 )
 
 # 导入需要从数据库重新查询的 ORM 类型。
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.persistence.models import (
     KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
 )
@@ -180,6 +182,12 @@ def test_ingest_document_persists_document_and_chunks(
         1,
     ]
 
+    # 手动输入的文档没有 PDF 页码，入库时应保存空列表。
+    assert [
+        chunk.page_numbers
+        for chunk in stored_document.chunks
+    ] == [[], []]
+
     # 两个片段都应该关联到当前文档。
     assert all(
         chunk.document_id == document_id
@@ -206,6 +214,83 @@ def test_ingest_document_persists_document_and_chunks(
         stored_document.chunks[1].embedding[0]
         == 0.2
     )
+
+
+# 这个测试负责验证跨页片段的 PDF 页码能够写入数据库并重新读取。
+def test_ingest_document_persists_pdf_page_numbers(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    database_session.commit()
+
+    first_page = "第一页是账户重置流程。"
+    third_page = "第三页是管理员审批步骤。"
+    embedding_provider = MagicMock(spec=EmbeddingProvider)
+    embedding_provider.embed_texts.return_value = EmbeddingBatch(
+        model_name="fake-embedding-model",
+        dimensions=EMBEDDING_DIMENSIONS,
+        vectors=(build_test_vector(0.1),),
+    )
+
+    document = ingest_document(
+        session=database_session,
+        raw_document=RawDocument(
+            title="跨页 PDF 测试",
+            content=f"{first_page}\n\n{third_page}",
+            source_type=KnowledgeSourceType.FILE,
+            source_uri="cross-page.pdf",
+            source_pages=(
+                SourcePage(page_number=1, text=first_page),
+                SourcePage(page_number=3, text=third_page),
+            ),
+        ),
+        created_by=database_user.id,
+        embedding_provider=embedding_provider,
+        max_characters=200,
+        overlap_characters=20,
+    )
+
+    document_id = document.id
+    database_session.expire_all()
+    stored_document = database_session.get(
+        KnowledgeDocumentRecord,
+        document_id,
+    )
+
+    assert stored_document is not None
+    assert len(stored_document.chunks) == 1
+    # 中间的第 2 页没有可提取文字，页码不能重新编号为 1、2。
+    assert stored_document.chunks[0].page_numbers == [1, 3]
+
+
+# 这个测试负责验证后台任务能够预先固定文档 ID，避免重试产生重复文档。
+def test_ingest_document_accepts_preassigned_document_id(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    embedding_provider = MagicMock(spec=EmbeddingProvider)
+    embedding_provider.embed_texts.return_value = EmbeddingBatch(
+        model_name="fake-embedding-model",
+        dimensions=EMBEDDING_DIMENSIONS,
+        vectors=(build_test_vector(0.1),),
+    )
+    planned_document_id = str(uuid4())
+
+    document = ingest_document(
+        session=database_session,
+        raw_document=RawDocument(
+            title="可重试入库",
+            content="相同任务重试时不应产生第二篇文档。",
+        ),
+        created_by=database_user.id,
+        embedding_provider=embedding_provider,
+        document_id=planned_document_id,
+    )
+
+    assert document.id == planned_document_id
+    assert database_session.get(
+        KnowledgeDocumentRecord, planned_document_id
+    ) is not None
 
 # 这个测试负责验证数据库失败后不会残留文档或片段。
 def test_ingest_document_rolls_back_all_records_on_failure(

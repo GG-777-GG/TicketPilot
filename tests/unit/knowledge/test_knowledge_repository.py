@@ -27,14 +27,21 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # 导入知识文档 ORM 类型。
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.persistence.models import (
+    KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
+    KnowledgeDocumentVersionRecord,
 )
 
 # 导入准备测试的 Repository 函数和异常。
-from ticketpilot.knowledge.repository import (
+from ticketpilot.knowledge.persistence.repository import (
     KnowledgeRepositoryError,
     add_document,
+    add_document_version,
+    get_document_version_by_number,
+    get_document_record_for_update,
+    list_document_versions,
+    replace_document_chunks,
 )
 
 
@@ -124,3 +131,284 @@ def test_add_document_converts_database_error() -> None:
         exception_info.value.__cause__,
         SQLAlchemyError,
     )
+
+
+# 验证 Repository 会加入并 flush 历史版本，但不会提交事务。
+def test_add_document_version_flushes_without_commit() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    document_version = MagicMock(
+        spec=KnowledgeDocumentVersionRecord
+    )
+
+    saved_version = add_document_version(
+        session,
+        document_version,
+    )
+
+    session.add.assert_called_once_with(
+        document_version
+    )
+    session.flush.assert_called_once_with()
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    assert saved_version is document_version
+
+
+# 验证保存历史版本失败时会转换数据库异常。
+def test_add_document_version_converts_database_error() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    document_version = MagicMock(
+        spec=KnowledgeDocumentVersionRecord
+    )
+    session.flush.side_effect = SQLAlchemyError(
+        "模拟历史版本写入失败"
+    )
+
+    with pytest.raises(
+        KnowledgeRepositoryError,
+        match="保存知识文档历史版本失败",
+    ) as exception_info:
+        add_document_version(
+            session,
+            document_version,
+        )
+
+    session.add.assert_called_once_with(
+        document_version
+    )
+    session.flush.assert_called_once_with()
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    assert isinstance(
+        exception_info.value.__cause__,
+        SQLAlchemyError,
+    )
+
+
+# 验证替换片段会先删除旧片段，再保存新片段。
+def test_replace_document_chunks_flushes_delete_before_insert() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    document = MagicMock(
+        spec=KnowledgeDocumentRecord
+    )
+    old_chunk = MagicMock(
+        spec=KnowledgeChunkRecord
+    )
+    first_new_chunk = MagicMock(
+        spec=KnowledgeChunkRecord
+    )
+    second_new_chunk = MagicMock(
+        spec=KnowledgeChunkRecord
+    )
+    document.chunks = [
+        old_chunk,
+    ]
+
+    updated_document = replace_document_chunks(
+        session,
+        document,
+        [
+            first_new_chunk,
+            second_new_chunk,
+        ],
+    )
+
+    assert document.chunks == [
+        first_new_chunk,
+        second_new_chunk,
+    ]
+    assert session.flush.call_count == 2
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    assert updated_document is document
+
+
+# 验证片段写入失败时会转换成 Repository 异常。
+def test_replace_document_chunks_converts_database_error() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    document = MagicMock(
+        spec=KnowledgeDocumentRecord
+    )
+    document.chunks = []
+    new_chunk = MagicMock(
+        spec=KnowledgeChunkRecord
+    )
+
+    # 第一次 flush 删除旧片段成功，第二次写入新片段失败。
+    session.flush.side_effect = [
+        None,
+        SQLAlchemyError(
+            "模拟新片段写入失败"
+        ),
+    ]
+
+    with pytest.raises(
+        KnowledgeRepositoryError,
+        match="替换知识文档片段失败",
+    ) as exception_info:
+        replace_document_chunks(
+            session,
+            document,
+            [
+                new_chunk,
+            ],
+        )
+
+    assert session.flush.call_count == 2
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+    assert isinstance(
+        exception_info.value.__cause__,
+        SQLAlchemyError,
+    )
+
+
+# 验证更新查询会生成 FOR UPDATE 行锁语义。
+def test_get_document_record_for_update_builds_locked_query() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    document = MagicMock(
+        spec=KnowledgeDocumentRecord
+    )
+    session.scalar.return_value = document
+
+    found_document = get_document_record_for_update(
+        session,
+        "document-001",
+    )
+
+    statement = session.scalar.call_args.args[0]
+
+    # SQLAlchemy 在语句内部保存了 FOR UPDATE 配置。
+    assert statement._for_update_arg is not None
+    assert found_document is document
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+# 验证锁定查询失败时会转换成 Repository 异常。
+def test_get_document_record_for_update_converts_database_error() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    session.scalar.side_effect = SQLAlchemyError(
+        "模拟 FOR UPDATE 查询失败"
+    )
+
+    with pytest.raises(
+        KnowledgeRepositoryError,
+        match="锁定待更新知识文档失败",
+    ) as exception_info:
+        get_document_record_for_update(
+            session,
+            "document-001",
+        )
+
+    assert isinstance(
+        exception_info.value.__cause__,
+        SQLAlchemyError,
+    )
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+# 验证文档不存在时历史版本查询会返回 None。
+def test_list_document_versions_returns_none_when_document_missing() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    session.scalar.return_value = None
+
+    result = list_document_versions(
+        session,
+        "missing-document",
+    )
+
+    assert result is None
+    session.scalar.assert_called_once()
+    session.execute.assert_not_called()
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+# 验证历史版本查询失败时会转换成统一 Repository 异常。
+def test_list_document_versions_converts_database_error() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    session.scalar.side_effect = SQLAlchemyError(
+        "模拟历史版本查询失败"
+    )
+
+    with pytest.raises(
+        KnowledgeRepositoryError,
+        match="查询知识文档历史版本失败",
+    ) as exception_info:
+        list_document_versions(
+            session,
+            "document-001",
+        )
+
+    assert isinstance(
+        exception_info.value.__cause__,
+        SQLAlchemyError,
+    )
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+# 验证找不到指定历史版本时返回 None。
+def test_get_document_version_by_number_returns_none_when_missing() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    session.execute.return_value.one_or_none.return_value = (
+        None
+    )
+
+    result = get_document_version_by_number(
+        session,
+        "document-001",
+        2,
+    )
+
+    assert result is None
+    session.execute.assert_called_once()
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+# 验证历史版本详情查询失败时转换成统一异常。
+def test_get_document_version_by_number_converts_database_error() -> None:
+    session = MagicMock(
+        spec=Session
+    )
+    session.execute.side_effect = SQLAlchemyError(
+        "模拟历史版本详情查询失败"
+    )
+
+    with pytest.raises(
+        KnowledgeRepositoryError,
+        match="查询知识文档历史版本详情失败",
+    ) as exception_info:
+        get_document_version_by_number(
+            session,
+            "document-001",
+            2,
+        )
+
+    assert isinstance(
+        exception_info.value.__cause__,
+        SQLAlchemyError,
+    )
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()

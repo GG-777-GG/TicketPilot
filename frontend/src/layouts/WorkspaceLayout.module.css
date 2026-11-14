@@ -1,0 +1,141 @@
+/*
+ * 文件职责：设置工作台导航、顶栏、用户区域、退出按钮和正文区的样式。
+ * 作用与配合：桌面使用侧栏布局，窄屏改为上下布局，并保留键盘焦点提示。
+ * 使用位置：仅由 WorkspaceLayout.tsx 通过 CSS Module 导入。
+ * 边界：只控制外观和排列，不处理身份、权限或退出登录操作。
+ */
+/* 桌面端分为两列：导航固定 240px，内容占据剩余空间。 */
+.shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    min-height: 100svh;
+}
+
+/* 左侧导航使用统一的深松绿色。 */
+.sidebar {
+    padding: var(--space-8) var(--space-6);
+    background: var(--color-sidebar);
+    color: white;
+}
+
+.brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.subtitle {
+    margin-top: var(--space-1);
+    font-size: var(--font-size-small);
+    color: #c2d4cb;
+}
+
+.navigation {
+    margin-top: var(--space-8);
+}
+
+/* 所有导航链接共用的样式。 */
+.navigation a {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-small);
+    color: white;
+    text-decoration: none;
+}
+
+/* 只有当前页面对应的链接才显示高亮背景。 */
+.navigation a[aria-current="page"] {
+    background: #28594a;
+}
+
+
+/* 深色背景上使用浅色焦点边框，方便键盘操作。 */
+.navigation a:focus-visible {
+    outline-color: white;
+}
+
+/* 避免内容过宽时把整个页面撑出屏幕。 */
+.workspace {
+    min-width: 0;
+}
+
+.header {
+    padding: var(--space-6) var(--space-8);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+    /* 标题和账号区域横向排列，两端对齐。 */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    /* 窄屏或文字较长时允许换行。 */
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+.content {
+    padding: var(--space-8);
+}
+
+/* 用户名和退出按钮横向排列，空间不足时换行。 */
+.account {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* 用户名使用正文颜色，长名字允许换行。 */
+.userName {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+}
+
+/* 退出按钮使用次要按钮样式，保持足够的点击高度。 */
+.signOutButton {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+}
+
+/* 鼠标悬停时给予轻微反馈。 */
+.signOutButton:hover {
+    background: var(--color-background);
+}
+
+/* 手机和平板窄屏：导航放在上方，内容放在下方。 */
+@media (max-width: 768px) {
+    .shell {
+        grid-template-columns: 1fr;
+
+        /* 第一行按导航内容决定高度，第二行占据剩余空间。 */
+        grid-template-rows: auto 1fr;
+    }
+
+    .sidebar,
+    .header,
+    .content {
+        padding: var(--space-6);
+    }
+
+    .navigation {
+        margin-top: var(--space-4);
+    }
+}
+
+/* 多个导航项之间保持间距。 */
+.navigation a + a {
+    margin-top: var(--space-2);
+}
+
+/* 鼠标悬停时提供反馈。 */
+.navigation a:hover {
+    background: #214e42;
+}

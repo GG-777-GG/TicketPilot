@@ -4,6 +4,7 @@ from pydantic import (
     ConfigDict,
     Field,
 )
+from uuid import UUID
 
 # 导入 Literal，用来限制字段只能使用指定字符串
 from typing import Literal
@@ -15,12 +16,12 @@ from ticketpilot.tickets.types import (
 )
 
 # 导入知识来源枚举。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
 )
 
 # 复用知识检索服务的默认参数。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
     DEFAULT_MIN_SIMILARITY,
     DEFAULT_RETRIEVAL_TOP_K,
     MAX_RETRIEVAL_TOP_K,
@@ -103,6 +104,21 @@ class ToolRequest(BaseModel):
     # AI 准备传给工具的原始参数
     arguments: dict[str, object]
 
+# 模型引用的一条知识库原文证据。
+class EvidenceQuote(BaseModel):
+    model_config = ConfigDict(
+        # 去掉模型输出中字符串两端多余的空格。
+        str_strip_whitespace=True,
+
+        # 只允许下面声明的两个字段，防止模型随意添加字段。
+        extra="forbid",
+    )
+
+    # 这句话来自哪个知识片段。
+    chunk_id: str = Field(min_length=1)
+
+    # 从该片段正文中逐字摘录的原文。
+    quote: str = Field(min_length=1)
 
 # 定义模型“直接回答用户”的决定
 class FinalAnswerDecision(BaseModel):
@@ -126,7 +142,21 @@ class FinalAnswerDecision(BaseModel):
         # 限制单次回答的最大长度
         max_length=8000,
     )
+    # 模型声明最终回答引用了哪些知识片段。
+    cited_chunk_ids: list[str] = Field(
+        default_factory=list,
+    )
 
+    # 回答所依据的原文证据；普通聊天可以没有证据。
+    # 列表中的每一项都包含“片段 ID + 对应原文”。
+    evidence: list[EvidenceQuote] = Field(
+        # 每次创建新回答时，都生成一个独立的空列表。
+        default_factory=list,
+    )
+
+    # 检索到的原文是否足以直接回答用户的问题。
+    # 默认 False：模型没有明确确认时，按证据不足处理。
+    evidence_is_sufficient: bool = False
 
 # 定义模型“请求调用工具”的决定
 class ToolCallDecision(BaseModel):
@@ -207,6 +237,9 @@ class AgentChatRequest(BaseModel):
         max_length=4000,
     )
 
+    # auto：由 Agent 决定；knowledge：由后端强制先检索知识库。
+    mode: Literal["auto", "knowledge"] = "auto"
+
 # 定义 Agent 回答所引用的一条真实知识来源。
 class AgentSource(BaseModel):
     # 拒绝未声明的额外字段。
@@ -238,6 +271,8 @@ class AgentSource(BaseModel):
     chunk_index: int = Field(
         ge=0,
     )
+    # 回答引用的 PDF 原始页码；非 PDF 来源使用空列表。
+    page_numbers: list[int]
 
     # 当前知识片段与用户问题的相似度。
     similarity: float = Field(
@@ -341,6 +376,11 @@ class KnowledgeToolMatch(
         ge=1
     )
 
+    # 片段对应的 PDF 原始页码；没有页码时为空列表。
+    page_numbers: list[int] = Field(
+        default_factory=list
+    )
+
     # 当前片段与用户问题的相似度。
     similarity: float = Field(
         ge=0.0,
@@ -367,3 +407,25 @@ class SearchKnowledgeToolResult(
     ] = Field(
         default_factory=list
     )
+
+class RequestTicketClosureArguments(BaseModel):
+    """模型只能提供操作目标和申请理由。"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    ticket_id: UUID
+    request_reason: str = Field(min_length=1, max_length=500)
+
+
+class RequestTicketClosureResult(BaseModel):
+    """返回已保存的申请编号，以及是否确认启动成功。"""
+
+    approval_id: UUID
+    operation_id: UUID
+    ticket_id: UUID
+
+    workflow_started: bool
+    message: str

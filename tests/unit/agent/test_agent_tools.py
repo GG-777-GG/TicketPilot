@@ -28,7 +28,7 @@ from ticketpilot.agent.schemas import (
 )
 
 # 导入知识来源枚举。
-from ticketpilot.knowledge.documents import (
+from ticketpilot.knowledge.domain.documents import (
     KnowledgeSourceType,
 )
 
@@ -38,7 +38,8 @@ from ticketpilot.knowledge.embeddings.base import (
 )
 
 # 导入 Retrieval Service 的内部结果类型。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
+    MAX_RETRIEVAL_TOP_K,
     RetrievedKnowledgeChunk,
 )
 
@@ -200,8 +201,18 @@ def test_get_ticket_details_propagates_repository_error(
             )
 
 # 这个测试负责验证知识检索工具会返回安全的匹配结果。
+@pytest.mark.parametrize(
+    ("source_type", "source_uri", "page_numbers"),
+    [
+        (KnowledgeSourceType.MANUAL, None, ()),
+        (KnowledgeSourceType.FILE, "guide.pdf", (2, 4)),
+    ],
+)
 def test_search_knowledge_returns_safe_matches(
     monkeypatch: pytest.MonkeyPatch,
+    source_type: KnowledgeSourceType,
+    source_uri: str | None,
+    page_numbers: tuple[int, ...],
 ) -> None:
     # 创建模拟 Session 和向量模型。
     session = MagicMock(
@@ -233,16 +244,15 @@ def test_search_knowledge_returns_safe_matches(
                 document_id="document-001",
                 document_title="密码重置说明",
                 document_version=1,
-                source_type=(
-                    KnowledgeSourceType.MANUAL
-                ),
-                source_uri=None,
+                source_type=source_type,
+                source_uri=source_uri,
                 chunk_index=0,
                 content=(
                     "用户可以通过注册邮箱重置密码。"
                 ),
                 start_offset=0,
                 end_offset=17,
+                page_numbers=page_numbers,
                 cosine_distance=0.1,
             ),
         )
@@ -263,6 +273,7 @@ def test_search_knowledge_returns_safe_matches(
             top_k=3,
             min_similarity=0.5,
         ),
+        allowed_visibilities=("internal", "restricted"),
     )
 
     # Retrieval Service 应该只被调用一次。
@@ -281,10 +292,15 @@ def test_search_knowledge_returns_safe_matches(
         service_call["question"]
         == "如何重置密码？"
     )
-    assert service_call["top_k"] == 3
+    # 数据库先取较大的候选池，之后工具才重排成请求的 3 条。
+    assert service_call["top_k"] == MAX_RETRIEVAL_TOP_K
     assert (
         service_call["min_similarity"]
         == 0.5
+    )
+    assert service_call["allowed_visibilities"] == (
+        "internal",
+        "restricted",
     )
 
     # 工具应该明确告诉模型找到了知识。
@@ -302,11 +318,61 @@ def test_search_knowledge_returns_safe_matches(
     assert match.content == (
         "用户可以通过注册邮箱重置密码。"
     )
+    # 工具交给模型的页码必须与检索结果一致。
+    assert match.page_numbers == list(page_numbers)
+    assert result.model_dump(mode="json")["matches"][0][
+        "page_numbers"
+    ] == list(page_numbers)
 
     # similarity = 1 - cosine_distance
     assert match.similarity == pytest.approx(
         0.9
     )
+
+
+def test_search_knowledge_reranks_candidates_before_limiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Agent 工具可以多取候选，但最终只返回请求的数量。"""
+    session = MagicMock(spec=Session)
+    embedding_provider = MagicMock(spec=EmbeddingProvider)
+
+    candidates = tuple(
+        RetrievedKnowledgeChunk(
+            chunk_id=f"chunk-{index}",
+            document_id="document-001",
+            document_title="测试文档",
+            document_version=1,
+            source_type=KnowledgeSourceType.MANUAL,
+            source_uri=None,
+            chunk_index=index,
+            content=f"片段内容 {index}",
+            start_offset=0,
+            end_offset=6,
+            page_numbers=(),
+            cosine_distance=0.1 + index * 0.01,
+        )
+        for index in range(4)
+    )
+
+    # 问题不足三个字符时，重排函数应保持原向量顺序。
+    monkeypatch.setattr(
+        knowledge_tools,
+        "retrieve_knowledge",
+        lambda **kwargs: candidates,
+    )
+
+    result = knowledge_tools.search_knowledge(
+        session,
+        embedding_provider,
+        SearchKnowledgeToolArguments(query="好", top_k=2),
+    )
+
+    assert [match.chunk_id for match in result.matches] == [
+        "chunk-0",
+        "chunk-1",
+    ]
+    assert result.message == "已找到 2 条相关企业知识"
 
 # 这个测试负责验证没有知识匹配时返回 found=False。
 def test_search_knowledge_returns_not_found(

@@ -1,0 +1,13 @@
+/*
+ * 文件职责：作为前端 TypeScript 配置入口，引用应用与 Node 工具的子配置。
+ * 作用与配合：让 tsc -b 分别检查浏览器源码和 vite.config.ts。
+ * 使用位置：由 npm run build 中的 TypeScript 构建命令读取。
+ * 边界：只组织类型检查配置，不执行应用或发送请求；TypeScript 配置支持此类注释。
+ */
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

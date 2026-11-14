@@ -5,11 +5,13 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# 显式导入全部 ORM 模型，让两张表登记到同一个 Base.metadata。
+# 显式导入全部 ORM 模型，登记到同一个 Base.metadata。
 # 让 Alembic 能够发现所有业务表
+import ticketpilot.approvals.models
+import ticketpilot.audit.models
 import ticketpilot.identity.models
-import ticketpilot.tickets.models#
-import ticketpilot.knowledge.models
+import ticketpilot.tickets.models
+import ticketpilot.knowledge.persistence.models
 
 # 导入项目统一使用的数据库地址和 ORM 元数据
 from ticketpilot.core.database import (

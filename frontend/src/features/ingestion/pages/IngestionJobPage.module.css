@@ -1,0 +1,148 @@
+/*
+ * 文件职责：定义任务详情的标题、信息卡片、状态和错误提示样式。
+ * 作用与配合：复用全局设计变量，桌面双列、手机单列展示字段。
+ * 使用位置：由 IngestionJobPage.tsx 通过 CSS Module 导入。
+ * 边界：只控制外观，不处理权限、查询或任务状态。
+ */
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.header,
+.summary,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.header,
+.summary {
+  justify-content: space-between;
+}
+
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.description {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.card {
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface);
+}
+
+.summary h2 {
+  min-width: 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+/* 所有操作至少 44px 高，保留全局的键盘焦点提示。 */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.button:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--color-background);
+}
+
+.button:disabled,
+.button[aria-disabled='true'] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* minmax 避免较长的任务 ID 或文件名撑宽整个页面。 */
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-6);
+  margin: var(--space-6) 0 0;
+}
+
+.field {
+  min-width: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.field dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.field dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* 状态始终有中文文字，颜色只作辅助。 */
+.badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: var(--font-size-small);
+}
+
+.badge[data-status='running'] {
+  background: #eff8ff;
+  color: #1849a9;
+}
+
+.badge[data-status='succeeded'] {
+  background: #eaf3ee;
+  color: var(--color-primary);
+}
+
+.badge[data-status='failed'] {
+  background: #fef3f2;
+  color: var(--color-danger);
+}
+
+.failure {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid #fecdca;
+  border-radius: var(--radius-small);
+  background: #fef3f2;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+
+.failure h3 {
+  margin-bottom: var(--space-2);
+  font-size: 1rem;
+}
+
+.error .button {
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .fields {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: var(--space-4);
+  }
+}

@@ -1,0 +1,112 @@
+/*
+ * 文件职责：定义历史版本面板、记录卡片、状态文字和分页按钮样式。
+ * 作用与配合：复用全局设计变量，在宽屏和手机上使用同一份记录列表。
+ * 使用位置：由 KnowledgeDocumentVersionsPanel.tsx 通过 CSS Module 导入。
+ * 边界：只控制显示，不请求数据或改变分页状态。
+ */
+.panel {
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--color-border);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.header,
+.pagination,
+.actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.header,
+.pagination {
+    justify-content: space-between;
+}
+
+.header h2 {
+    font-size: 1.125rem;
+}
+
+.muted,
+.status {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.status {
+    margin: var(--space-4) 0;
+}
+
+.list {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.item {
+    min-width: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-background);
+}
+
+.item h3 {
+    margin-bottom: var(--space-2);
+    font-size: 1rem;
+}
+
+.version {
+    color: var(--color-primary);
+}
+
+.pagination {
+    margin-top: var(--space-4);
+}
+
+.button {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+    .actions {
+        width: 100%;
+    }
+    .actions .button {
+        flex: 1;
+    }
+}
+
+/* 历史正文入口保留链接样式，并提供至少 44px 的点击高度。 */
+.detailLink {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: var(--space-2);
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.detailLink:hover {
+    color: var(--color-primary-hover);
+}

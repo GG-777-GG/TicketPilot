@@ -1,0 +1,45 @@
+/*
+ * 文件职责：定义页面未找到提示及返回按钮的样式。
+ * 作用与配合：复用全局颜色、间距和圆角。
+ * 使用位置：由 NotFoundPage 导入。
+ * 边界：只负责显示，不匹配路由或处理请求。
+ */
+.panel {
+    max-width: 48rem;
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.code {
+    color: var(--color-text-muted);
+    font-size: 2rem;
+    font-weight: 600;
+}
+
+.panel h1 {
+    margin-bottom: var(--space-2);
+}
+
+.description {
+    margin-bottom: var(--space-4);
+    color: var(--color-text-muted);
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: white;
+    text-decoration: none;
+}
+
+.button:hover {
+    background: var(--color-primary-hover);
+}

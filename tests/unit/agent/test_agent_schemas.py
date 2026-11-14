@@ -87,6 +87,84 @@ def test_model_decision_accepts_final_answer() -> None:
     # 回答两端的空格应该被自动删除
     assert decision.answer == "工单当前正在处理中。"
 
+    # 没有使用知识库的回答默认不引用任何片段。
+    assert decision.cited_chunk_ids == []
+    assert decision.evidence == []
+    assert decision.evidence_is_sufficient is False
+
+
+# 验证最终回答可以明确声明实际引用的知识片段。
+def test_model_decision_accepts_cited_chunk_ids() -> None:
+    decision = MODEL_DECISION_ADAPTER.validate_python(
+        {
+            "kind": "final_answer",
+            "answer": "密码重置请联系管理员。",
+            "cited_chunk_ids": ["pdf-chunk-001"],
+        }
+    )
+
+    assert isinstance(decision, FinalAnswerDecision)
+    assert decision.cited_chunk_ids == ["pdf-chunk-001"]
+
+
+# 验证最终回答可以附带片段 ID 和原文引句。
+def test_model_decision_accepts_answer_evidence() -> None:
+    decision = MODEL_DECISION_ADAPTER.validate_python(
+        {
+            "kind": "final_answer",
+            "answer": "保修从送货日起计算。",
+            "cited_chunk_ids": ["contract-chunk-001"],
+            "evidence": [
+                {"chunk_id": "contract-chunk-001", "quote": "按送货日起"},
+                {"chunk_id": "contract-chunk-001", "quote": "非人为故障保修叁个月。"},
+            ],
+            "evidence_is_sufficient": True,
+        }
+    )
+
+    assert isinstance(decision, FinalAnswerDecision)
+    assert [(item.chunk_id, item.quote) for item in decision.evidence] == [
+        ("contract-chunk-001", "按送货日起"),
+        ("contract-chunk-001", "非人为故障保修叁个月。"),
+    ]
+    assert decision.evidence_is_sufficient is True
+
+
+# 验证 evidence 必须是由“片段 ID + 引句”对象组成的列表。
+# 引句是否真的来自原文，由 Agent Loop 继续验证。
+@pytest.mark.parametrize(
+    "invalid_evidence",
+    [
+        {"contract-chunk-001": "送货日起"},
+        [{"chunk_id": "contract-chunk-001"}],
+        [{"chunk_id": "contract-chunk-001", "quote": 123}],
+        [{"chunk_id": "contract-chunk-001", "quote": "   "}],
+    ],
+)
+def test_model_decision_rejects_invalid_answer_evidence(
+    invalid_evidence: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        MODEL_DECISION_ADAPTER.validate_python(
+            {
+                "kind": "final_answer",
+                "answer": "保修三个月。",
+                "evidence": invalid_evidence,
+            }
+        )
+
+
+# 验证引用字段必须是片段 ID 列表，不能是一段随意的文本。
+def test_model_decision_rejects_non_list_citations() -> None:
+    with pytest.raises(ValidationError):
+        MODEL_DECISION_ADAPTER.validate_python(
+            {
+                "kind": "final_answer",
+                "answer": "密码重置请联系管理员。",
+                "cited_chunk_ids": "pdf-chunk-001",
+            }
+        )
+
 
 # 验证模型可以选择调用查询工单工具
 def test_model_decision_accepts_tool_call() -> None:
@@ -161,6 +239,29 @@ def test_agent_chat_request_accepts_valid_message() -> None:
 
     # str_strip_whitespace=True 应该删除两端空格
     assert request.message == "帮我查询工单 ticket-001"
+    # 旧客户端不传 mode 时，默认继续使用自动模式。
+    assert request.mode == "auto"
+
+
+# 这个测试负责验证用户可以明确选择强制知识检索模式。
+def test_agent_chat_request_accepts_knowledge_mode() -> None:
+    request = AgentChatRequest(
+        message="维修部分保修多久？",
+        mode="knowledge",
+    )
+
+    assert request.mode == "knowledge"
+
+
+# 这个测试负责验证未定义的对话模式会被拒绝。
+def test_agent_chat_request_rejects_unknown_mode() -> None:
+    with pytest.raises(ValidationError):
+        AgentChatRequest.model_validate(
+            {
+                "message": "维修部分保修多久？",
+                "mode": "unrestricted",
+            }
+        )
 
 
 # 验证 Agent 接口拒绝空白问题

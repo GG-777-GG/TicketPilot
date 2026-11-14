@@ -36,8 +36,10 @@ from ticketpilot.knowledge.embeddings.base import (
 )
 
 # 导入已经完成并测试过的知识检索服务。
-from ticketpilot.knowledge.retrieval import (
+from ticketpilot.knowledge.application.retrieval import (
     retrieve_knowledge,
+    MAX_RETRIEVAL_TOP_K,
+    rerank_candidates,
 )
 
 
@@ -51,18 +53,31 @@ def search_knowledge(
 
     # 已经经过 Pydantic 验证的工具参数。
     arguments: SearchKnowledgeToolArguments,
+
+    # 星号后必须使用参数名传值。
+    *,
+    # 旧调用默认只能检索 internal 文档。
+    allowed_visibilities: tuple[str, ...] = ("internal",),
+
 ) -> SearchKnowledgeToolResult:
     # 调用 Retrieval Service 完成向量生成和 pgvector 检索。
-    retrieved_chunks = retrieve_knowledge(
+    # 第一阶段：按向量相似度多取一些候选。
+    # 数据库仍会先执行状态、权限和最低相似度过滤。
+    candidate_chunks = retrieve_knowledge(
         session=session,
         question=arguments.query,
-        embedding_provider=(
-            embedding_provider
-        ),
+        embedding_provider=embedding_provider,
+        top_k=MAX_RETRIEVAL_TOP_K,  # 当前上限是 20
+        min_similarity=arguments.min_similarity,
+        allowed_visibilities=allowed_visibilities,
+    )
+
+    # 第二阶段：合并向量排名和文字排名，
+    # 最终只把用户要求的 top_k 条交给 Agent。
+    retrieved_chunks = rerank_candidates(
+        question=arguments.query,
+        candidates=candidate_chunks,
         top_k=arguments.top_k,
-        min_similarity=(
-            arguments.min_similarity
-        ),
     )
 
     # 把内部检索结果转换成允许交给模型的数据。
@@ -86,6 +101,10 @@ def search_knowledge(
 
             start_offset=chunk.start_offset,
             end_offset=chunk.end_offset,
+            # 将检索结果中的只读页码转成工具结果的列表。
+            page_numbers=list(
+                chunk.page_numbers
+            ),
 
             # 防止浮点误差产生略大于 1 的值。
             similarity=max(

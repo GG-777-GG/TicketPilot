@@ -3,12 +3,13 @@
 from hashlib import sha256
 from uuid import uuid4
 
-from ticketpilot.knowledge.chunking import CHUNKER_VERSION
-from ticketpilot.knowledge.cleaning import CLEANER_VERSION
-from ticketpilot.knowledge.constants import EMBEDDING_DIMENSIONS
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.domain.chunking import CHUNKER_VERSION
+from ticketpilot.knowledge.domain.cleaning import CLEANER_VERSION
+from ticketpilot.knowledge.domain.constants import EMBEDDING_DIMENSIONS
+from ticketpilot.knowledge.persistence.models import (
     KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
+    KnowledgeDocumentVersionRecord,
 )
 
 
@@ -29,6 +30,7 @@ def build_knowledge_document(
     cleaned_content: str | None = None,
     content_hash: str | None = None,
     embedding_model: str = "qwen3-embedding:0.6b",
+    visibility: str = "internal",
 ) -> KnowledgeDocumentRecord:
     """构造知识文档 ORM 对象，但不执行任何数据库操作。"""
 
@@ -53,6 +55,7 @@ def build_knowledge_document(
             else _content_hash(normalized_content)
         ),
         embedding_model=embedding_model,
+        visibility=visibility,
         cleaner_version=CLEANER_VERSION,
         chunker_version=CHUNKER_VERSION,
         created_by=created_by,
@@ -95,4 +98,55 @@ def build_knowledge_chunk(
             if embedding is not None
             else [0.0] * EMBEDDING_DIMENSIONS
         ),
+    )
+
+
+def build_knowledge_document_version(
+    *,
+    document_id: str,
+    created_by: str,
+    superseded_by: str,
+    version_id: str | None = None,
+    version: int = 1,
+    title: str = "密码重置说明",
+    raw_content: str = "用户可以通过邮箱重置密码。",
+    cleaned_content: str | None = None,
+    content_hash: str | None = None,
+    source_type: str = "manual",
+    source_uri: str | None = None,
+    embedding_model: str = "qwen3-embedding:0.6b",
+    embedding_dimensions: int = EMBEDDING_DIMENSIONS,
+) -> KnowledgeDocumentVersionRecord:
+    """构造知识文档历史版本，但不写入数据库。"""
+
+    normalized_content = (
+        cleaned_content
+        if cleaned_content is not None
+        else raw_content
+    )
+
+    return KnowledgeDocumentVersionRecord(
+        id=(
+            version_id
+            if version_id is not None
+            else str(uuid4())
+        ),
+        document_id=document_id,
+        version=version,
+        title=title,
+        raw_content=raw_content,
+        cleaned_content=normalized_content,
+        source_type=source_type,
+        source_uri=source_uri,
+        content_hash=(
+            content_hash
+            if content_hash is not None
+            else _content_hash(normalized_content)
+        ),
+        embedding_model=embedding_model,
+        embedding_dimensions=embedding_dimensions,
+        cleaner_version=CLEANER_VERSION,
+        chunker_version=CHUNKER_VERSION,
+        created_by=created_by,
+        superseded_by=superseded_by,
     )

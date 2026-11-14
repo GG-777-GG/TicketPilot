@@ -137,6 +137,10 @@ class Settings(BaseSettings):
         # 最长暂时限制为十分钟
         le=600,
     )
+
+    # 是否额外检查知识库引句能否回答问题；实验阶段默认关闭。
+    enable_evidence_verification: bool = False
+
     # 生成知识向量时使用的 Ollama 模型。
     ollama_embedding_model: str = Field(
         default=DEFAULT_OLLAMA_EMBEDDING_MODEL,
@@ -158,7 +162,17 @@ class Settings(BaseSettings):
         ge=1,
         le=256,
     )
+    # 异步入库使用的文件保存目录。
+    # API 先把文件保存到这里，Worker 稍后读取并解析。
+    # 默认放在项目的 data/knowledge_uploads 目录中。
+    knowledge_upload_directory: Path = Field(
+        default=BASE_DIR / "data" / "knowledge_uploads",
+    )
 
+    # 正式工单工作流的本地检查点文件；与业务数据库分开保存。
+    approval_workflow_checkpoint_path: Path = Field(
+        default=BASE_DIR / "data" / "ticket_closure_checkpoints.sqlite",
+    )
 # 创建全局配置对象
 # 程序其他文件以后统一从这个对象读取配置
 settings = Settings()

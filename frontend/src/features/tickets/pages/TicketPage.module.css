@@ -1,0 +1,96 @@
+/*
+ * 文件职责：定义工单详情的布局、字段、正文和操作按钮样式。
+ * 作用与配合：复用全站设计变量，窄屏时切换为单列。
+ * 使用位置：由 TicketPage.tsx 导入。
+ * 边界：只控制显示，不查询或修改工单。
+ */
+.header,
+.actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.header {
+    justify-content: space-between;
+    margin-bottom: var(--space-6);
+}
+
+.panel {
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    overflow-wrap: anywhere;
+}
+
+.subject {
+    font-size: 1.25rem;
+    margin-bottom: var(--space-2);
+}
+
+.muted,
+.fields dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-small);
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin: var(--space-6) 0;
+}
+
+.fields dd {
+    margin: var(--space-1) 0 0;
+}
+
+.description {
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.description h2 {
+    font-size: 1.125rem;
+}
+
+.body {
+    margin-top: var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.button:hover:not([aria-disabled='true']) {
+    background: var(--color-background);
+}
+
+.button[aria-disabled='true'] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.error {
+    color: var(--color-danger);
+    margin-bottom: var(--space-3);
+}
+
+@media (max-width: 600px) {
+    .fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

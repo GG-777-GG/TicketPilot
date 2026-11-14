@@ -1,0 +1,39 @@
+# 文件职责：限制根目录Docker构建上下文，排除本机环境、凭据和业务数据。
+# 作用与配合：供根目录Dockerfile及后续Compose build使用。
+# 边界：不删除本地文件，不影响Compose在宿主机读取运行配置。
+
+.git
+.venv
+.env*
+**/.env*
+.agents
+.codex
+.aws
+.ssh
+.idea
+.vscode
+
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage*
+htmlcov
+
+**/node_modules
+frontend/dist
+
+# 持久化数据在运行时挂载，不进入构建上下文。
+data
+tmp
+tests
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*.db
+**/*.db-*
+**/*.log
+**/*.pem
+**/*.key

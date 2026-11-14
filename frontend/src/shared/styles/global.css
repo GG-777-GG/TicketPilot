@@ -1,0 +1,72 @@
+/*
+ * 文件职责：设置全站基础字体、背景、盒模型、表单字体和键盘焦点样式。
+ * 作用与配合：先导入 tokens.css，再为各页面提供一致的浏览器基础样式。
+ * 使用位置：由 main.tsx 加载一次，作用于整个应用。
+ * 边界：不编写某个页面专属布局，专属样式放在对应 CSS Module。
+ */
+/* 加载刚才定义的设计变量，必须放在其他样式规则前面。 */
+@import "./tokens.css";
+
+/* 元素设置宽度时，把内边距和边框也算进去，方便控制布局。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* 首期统一使用浅色主题。 */
+  color-scheme: light;
+  font-family: var(--font-sans);
+}
+
+body {
+  /* 清除浏览器默认的页面外边距。 */
+  margin: 0;
+
+  /* var() 用来读取 tokens.css 中定义的变量。 */
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+
+  /* 行高是字号的 1.6 倍，让中文更容易阅读。 */
+  line-height: 1.6;
+}
+
+/* React 页面容器至少占满一屏高度。 */
+#root {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+/* 清除默认外边距，具体间距交给页面和组件控制。 */
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+/* 表单控件沿用页面字体。 */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* 鼠标移到按钮上时显示手形。 */
+button {
+  cursor: pointer;
+}
+
+/* 禁用按钮显示不可操作的鼠标提示。 */
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* 键盘操作时显示清晰的焦点边框。 */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}

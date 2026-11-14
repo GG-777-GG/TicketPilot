@@ -123,10 +123,20 @@ def update_ticket_status(
     session: DatabaseSession,
     current_user: CurrentUser,
 ) -> TicketResponse:
-    """修改工单状态。"""
+    """修改普通工单状态；关闭操作必须通过审批执行。"""
 
+    # 先确认工单存在；不存在时仍然返回 404。
     ticket = _get_ticket_or_404(session, ticket_id)
+
+    # 在写数据库之前拦截直接关闭，所有角色都遵守这条规则。
+    if request.status == "closed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="关闭工单需要提交审批申请，并在获批后执行",
+        )
+
     try:
+        # 其他合法状态仍按原来的流程保存。
         updated_ticket = ticket_repository.update_ticket_status(
             session,
             ticket,

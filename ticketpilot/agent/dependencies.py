@@ -13,6 +13,15 @@ from ticketpilot.agent.model import AgentModel
 # 导入真正连接本地 Ollama 的实现
 from ticketpilot.agent.providers.ollama import OllamaModel
 
+# 从 core/config.py 读取是否启用证据校验的配置。
+from ticketpilot.core.config import settings
+
+# 从 agent/verification.py 导入校验器接口和 Ollama 实现。
+from ticketpilot.agent.verification import (
+    EvidenceVerifier,
+    OllamaEvidenceVerifier,
+)
+
 
 # 创建并缓存项目使用的 Agent 模型
 @lru_cache
@@ -29,4 +38,22 @@ AgentModelDependency = Annotated[
 
     # FastAPI 自动调用 get_agent_model()
     Depends(get_agent_model),
+]
+
+# 这个函数负责根据配置决定是否提供证据校验器。
+def get_evidence_verifier() -> EvidenceVerifier | None:
+    # 默认关闭时，不创建校验器，也不增加一次模型调用。
+    if not settings.enable_evidence_verification:
+        return None
+
+    # 明确开启时，才创建真正的 Ollama 校验器。
+    return OllamaEvidenceVerifier()
+
+# 路由参数使用这个类型时，FastAPI 自动调用 get_evidence_verifier()。
+EvidenceVerifierDependency = Annotated[
+    # 开关关闭时得到 None，开启时得到校验器对象。
+    EvidenceVerifier | None,
+
+    # 告诉 FastAPI 从这个函数取得对象。
+    Depends(get_evidence_verifier),
 ]

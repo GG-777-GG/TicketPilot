@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from tests.factories.knowledge import (
     build_knowledge_chunk,
     build_knowledge_document,
+    build_knowledge_document_version,
 )
 
 # 导入项目统一的 ORM Base。
@@ -46,14 +47,15 @@ from ticketpilot.core.database import Base
 from ticketpilot.identity.models import UserRecord
 
 # 导入知识向量维度。
-from ticketpilot.knowledge.constants import (
+from ticketpilot.knowledge.domain.constants import (
     EMBEDDING_DIMENSIONS,
 )
 
 # 导入知识库 ORM 模型。
-from ticketpilot.knowledge.models import (
+from ticketpilot.knowledge.persistence.models import (
     KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
+    KnowledgeDocumentVersionRecord,
 )
 
 
@@ -66,6 +68,11 @@ def test_knowledge_tables_are_registered() -> None:
 
     # knowledge_chunks 表也必须存在。
     assert "knowledge_chunks" in (
+        Base.metadata.tables
+    )
+
+    # 历史版本表也必须登记到统一 metadata。
+    assert "knowledge_document_versions" in (
         Base.metadata.tables
     )
 
@@ -99,6 +106,10 @@ def test_document_and_chunks_can_be_saved(
             ),
         ]
     )
+
+    # 第一个片段来自 PDF 的第 2、3 页；另一个片段不设置页码，
+    # 用于同时验证显式页码和 ORM 默认空列表。
+    document.chunks[0].page_numbers = [2, 3]
 
     # 把 Document 加入 Session。
     # cascade 会同时保存它的两个 Chunk。
@@ -164,6 +175,11 @@ def test_document_and_chunks_can_be_saved(
         0,
         1,
     ]
+
+    # 重新读取后，JSON 页码应恢复成 Python 列表。
+    # chunk_index=0 没有页码；chunk_index=1 保存了来源页。
+    assert saved_document.chunks[0].page_numbers == []
+    assert saved_document.chunks[1].page_numbers == [2, 3]
 
     # SQLite JSON 能够恢复成 Python list。
     assert isinstance(
@@ -428,4 +444,177 @@ def test_document_creator_must_exist(
         database_session.commit()
 
     # 恢复 Session。
+    database_session.rollback()
+
+
+# 验证历史版本能够保存，并会随所属文档一起删除。
+def test_document_version_can_be_saved_and_cascade_deleted(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    document = build_knowledge_document(
+        created_by=database_user.id,
+        document_id="versioned-document",
+    )
+    document.updated_by = database_user.id
+    database_session.add(document)
+    database_session.flush()
+
+    history = build_knowledge_document_version(
+        version_id="history-version-001",
+        document_id=document.id,
+        created_by=database_user.id,
+        superseded_by=database_user.id,
+        version=1,
+        raw_content="第一版原始内容",
+        cleaned_content="第一版原始内容",
+    )
+    database_session.add(history)
+    database_session.commit()
+    database_session.expire_all()
+
+    saved_history = database_session.get(
+        KnowledgeDocumentVersionRecord,
+        "history-version-001",
+    )
+
+    assert saved_history is not None
+    assert saved_history.document_id == "versioned-document"
+    assert saved_history.version == 1
+    assert saved_history.raw_content == "第一版原始内容"
+    assert saved_history.created_at is not None
+    assert saved_history.superseded_at is not None
+
+    saved_document = database_session.get(
+        KnowledgeDocumentRecord,
+        "versioned-document",
+    )
+    assert saved_document is not None
+    assert saved_document.updated_by == database_user.id
+
+    # 删除整篇文档后，数据库外键应级联删除历史版本。
+    database_session.delete(saved_document)
+    database_session.commit()
+
+    # 使用 SELECT 真正查询数据库，避免读取 Session 中的旧缓存对象。
+    remaining_versions = database_session.scalars(
+        select(
+            KnowledgeDocumentVersionRecord
+        ).where(
+            KnowledgeDocumentVersionRecord.id
+            == "history-version-001"
+        )
+    ).all()
+
+    assert remaining_versions == []
+
+
+# 验证同一篇文档不能保存重复的历史版本号。
+def test_duplicate_document_version_is_rejected(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    document = build_knowledge_document(
+        created_by=database_user.id,
+        document_id="duplicate-version-document",
+    )
+    database_session.add(document)
+    database_session.flush()
+
+    database_session.add_all(
+        [
+            build_knowledge_document_version(
+                document_id=document.id,
+                created_by=database_user.id,
+                superseded_by=database_user.id,
+                version=1,
+            ),
+            build_knowledge_document_version(
+                document_id=document.id,
+                created_by=database_user.id,
+                superseded_by=database_user.id,
+                version=1,
+            ),
+        ]
+    )
+
+    with pytest.raises(
+        IntegrityError
+    ):
+        database_session.commit()
+
+    database_session.rollback()
+
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_value",
+    ),
+    [
+        (
+            "version",
+            0,
+        ),
+        (
+            "source_type",
+            "email",
+        ),
+        (
+            "embedding_dimensions",
+            768,
+        ),
+    ],
+)
+# 验证历史版本表会拒绝不合法的字段值。
+def test_document_version_rejects_invalid_values(
+    database_session: Session,
+    database_user: UserRecord,
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    document = build_knowledge_document(
+        created_by=database_user.id,
+    )
+    database_session.add(document)
+    database_session.flush()
+
+    history = build_knowledge_document_version(
+        document_id=document.id,
+        created_by=database_user.id,
+        superseded_by=database_user.id,
+    )
+    setattr(
+        history,
+        field_name,
+        invalid_value,
+    )
+    database_session.add(history)
+
+    with pytest.raises(
+        IntegrityError
+    ):
+        database_session.commit()
+
+    database_session.rollback()
+
+
+# 验证 updated_by 必须引用真实存在的用户。
+def test_document_updater_must_exist(
+    database_session: Session,
+    database_user: UserRecord,
+) -> None:
+    document = build_knowledge_document(
+        created_by=database_user.id,
+    )
+    document.updated_by = str(
+        uuid4()
+    )
+    database_session.add(document)
+
+    with pytest.raises(
+        IntegrityError
+    ):
+        database_session.commit()
+
     database_session.rollback()

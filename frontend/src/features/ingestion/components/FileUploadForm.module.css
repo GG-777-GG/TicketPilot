@@ -1,0 +1,119 @@
+/*
+ * 文件职责：设置上传卡片、表单控件和结果提示的样式。
+ * 作用与配合：使用全局设计变量，与任务列表保持统一风格。
+ * 使用位置：由 FileUploadForm.tsx 通过 CSS Module 导入。
+ * 边界：只改变外观，不负责校验、权限或上传。
+ */
+
+/* 白色上传卡片。 */
+.panel {
+  min-width: 0;
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface);
+}
+
+.heading {
+  font-size: 1.125rem;
+}
+
+.description,
+.help {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.description {
+  margin-top: var(--space-2);
+}
+
+/* 表单整体纵向排列。 */
+.form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+/* 桌面端：标题和可见范围并排。 */
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: var(--space-4);
+}
+
+/* 一个标签和它对应的控件。 */
+.field {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.input {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* 主按钮保持足够的点击高度。 */
+.button {
+  justify-self: start;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-small);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.button:disabled {
+  opacity: 0.65;
+}
+
+/* 长任务 ID 和错误文字允许换行。 */
+.feedback {
+  margin-top: var(--space-4);
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.feedback[data-kind='success'] {
+  color: var(--color-primary);
+}
+
+.feedback[data-kind='error'],
+.feedback[data-kind='uncertain'] {
+  color: var(--color-danger);
+}
+
+.review {
+  margin-top: var(--space-3);
+}
+
+/* 手机端改为单列，按钮占满可用宽度。 */
+@media (max-width: 640px) {
+  .panel {
+    padding: var(--space-4);
+  }
+
+  .fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .button {
+    width: 100%;
+  }
+}
