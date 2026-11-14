@@ -30,9 +30,6 @@ jobs:
       # 本组模型调用由替身接管，不连接真实Ollama。
       OLLAMA_BASE_URL: "http://127.0.0.1:9"
 
-      # 即使测试需要文件，也放在本次运行的临时目录。
-      KNOWLEDGE_UPLOAD_DIRECTORY: "${{ runner.temp }}/knowledge_uploads"
-      APPROVAL_WORKFLOW_CHECKPOINT_PATH: "${{ runner.temp }}/checkpoints.sqlite"
 
     steps:
       # 把当前待检查的代码下载到运行环境。
@@ -52,6 +49,11 @@ jobs:
 
       # 第一版先执行已验证的隔离单测范围。
       - name: Run backend tests
+        # runner上下文在步骤env中可用。
+        env:
+          KNOWLEDGE_UPLOAD_DIRECTORY: "${{ runner.temp }}/knowledge_uploads"
+          APPROVAL_WORKFLOW_CHECKPOINT_PATH: "${{ runner.temp }}/checkpoints.sqlite"
+
         run: >
           uv run --locked pytest -q
           tests/unit/identity

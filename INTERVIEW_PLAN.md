@@ -18,6 +18,8 @@
 
 2026-11-14首次推送教学准备：学习者已重新暂存当前项目，根CI配置、依赖锁文件和主要部署/源码均在索引中。核对暂存361个新增/修改文件与工作区内容一致（忽略CRLF差异），无.env/演示凭据/data/tmp/venv/node_modules/dist进入本次暂存清单；tmp未跟踪候选0。用户创建并提供https://github.com/GG-777-GG/TicketPilot，当前main且仍未配置远程。格式检查发现9处文件末尾多余空行，老师仅清理这些空行，未改代码逻辑、未更新索引；教学文档亦需学习者重新暂存。指导学习者更新快照、检查cached、配置origin、提交并push -u origin main，在GitHub Actions查看两job。老师未配置远程、提交或推送，远端CI尚无运行证据；不因纯空行重跑已通过测试。理解题：git commit和git push分别把代码保存到了哪里？
 
+2026-11-14首次远端CI核对：本地main提交3e504b7已成功推送，git ls-remote确认远端同SHA，origin地址正确且上游origin/main。通过已有Git认证只读访问GitHub API，凭据仅内存使用未打印/落盘；run43600290523为completed/failure、jobs为空，check-suite亦无check-run注释。检查配置并核对GitHub官方Context availability，发现老师此前示例在jobs.backend.env引用runner.temp，该位置不支持runner；需由学习者移两项路径到Run backend tests步骤env（此处支持runner）。在内存中验证候选YAML结构与测试命令不变，未改CI文件/索引/远端，不宣称已修复或CI通过；该配置错误与零job现象一致，未取得平台原始校验注释。提供修改、单独提交和push后查看最新run步骤。原.env.example与.gitattributes仍为未纳入提交的本机修改，保留。理解题：修复配置后，为什么要看新提交的CI记录，而不是重新运行旧提交的失败记录？
+
 ## 必须保留的面试主线
 
 | 技术 | 本版实现边界 | 验收证据/需要能解释的内容 |
